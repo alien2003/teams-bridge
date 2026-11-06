@@ -32,6 +32,7 @@ Paths are globs; `~` is the WSL home directory, `%VAR%` a Windows environment va
 | `%USERPROFILE%\ntuser.dat*` | noise (host) | Transaction logs of the user registry hive; change whenever any app writes HKCU | none | noise |
 | `%LOCALAPPDATA%\Microsoft\Windows\UsrClass.dat*` | noise (host) | Same for the HKCU\Software\Classes hive | none | noise |
 | `%LOCALAPPDATA%\Microsoft\TokenBroker\*` | noise (host) | Windows Web Account Manager token cache | none (not ours) | noise |
+| `/var/tmp/systemd-private-*` | noise (system) | the same, under `/var/tmp` | none (not ours) | noise |
 <!-- END outside-table -->
 
 ## apt packages
