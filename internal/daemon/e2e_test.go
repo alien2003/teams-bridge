@@ -141,7 +141,7 @@ func TestE2ENotificationsReachFCMEncrypted(t *testing.T) {
 		t.Errorf("heartbeat ts %d is not now", hb.TS)
 	}
 	alice := h.waitFor("Alice (window.Notification)", 60*time.Second, isMsg("Alice"))
-	if alice.Body != "hi" || alice.Tag != "" || alice.URL != h.teams.Origin()+"/l/chat/19:uni01_alice@thread.v2/conversations" {
+	if alice.Body != "hi" || alice.Tag != "" || alice.URL != h.teams.Origin()+"/l/chat/19%3Auni01_alice%40thread.v2/conversations?context=%7B%22contextType%22%3A%22chat%22%7D" {
 		t.Errorf("Alice: %+v", alice)
 	}
 	if !strings.HasPrefix(alice.URL, h.teams.Origin()+"/") {
@@ -204,6 +204,17 @@ func TestE2ESessionExpiredBy401Burst(t *testing.T) {
 func TestE2ESessionExpiredByLoginRedirect(t *testing.T) {
 	h := start(t, Options{LoginGrace: time.Second, ProbeInterval: 2 * time.Second, FirstProbe: 2 * time.Second})
 	h.waitFor("Alice", 60*time.Second, isMsg("Alice"))
+	// The first healthy probe also surveys the chat list (structure only).
+	deadline := time.Now().Add(15 * time.Second)
+	for !strings.Contains(h.logs.String(), `msg="chat list survey" conversation_items=3 attrs=data-fui-tree-item-value:3`) {
+		if time.Now().After(deadline) {
+			t.Fatal("no chat list survey with the fake page's three chats")
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if ln := h.logs.String(); !strings.Contains(ln, "labelled=3 avatar_mri=2 avatar_img=2") || strings.Contains(ln, "uni01_projectx") {
+		t.Errorf("survey counts or masking wrong")
+	}
 	h.teams.RedirectToLogin()
 	h.waitFor("session_expired after redirect to the login host", 30*time.Second, isAlert(proto.KindSessionExpired))
 }

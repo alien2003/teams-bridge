@@ -32,7 +32,10 @@ var (
 //
 //   - <origin>/l/message/<chatId>/<messageId>?context={"contextType":"chat"}  chat + message id;
 //   - <origin>/l/message/<channelId>/<messageId>                             channel + message id;
-//   - <origin>/l/chat/<chatId>/conversations                                 chat id only.
+//   - <origin>/l/chat/<chatId>/conversations?context={"contextType":"chat"}  chat id only,
+//
+// with the id percent-encoded (':' → %3A, '@' → %40) and the query encoded, exactly as Teams' own
+// "Copy link" writes it.
 //
 // A channel id without a message id has no documented link that works without the team's groupId,
 // so it, like "nothing usable" or an unparsable teamsURL, yields teamsURL unchanged. The result is
@@ -69,20 +72,25 @@ func DeepLink(teamsURL string, ev Event) string {
 		msg = findMessageID(hay, thread)
 	}
 
-	out := &url.URL{Scheme: base.Scheme, Host: base.Host}
+	// The exact form Teams' own "Copy link" produces (work account, 2026-11): the id with ':' and '@'
+	// percent-encoded, and the chat context for chats, e.g.
+	// https://teams.cloud.microsoft/l/chat/19%3A…%40thread.v2/conversations?context=%7B%22contextType%22%3A%22chat%22%7D
+	origin := base.Scheme + "://" + base.Host
+	ctx := "?context=" + url.QueryEscape(`{"contextType":"chat"}`)
 	switch {
+	case msg != "" && chat:
+		return origin + "/l/message/" + escapeID(thread) + "/" + msg + ctx
 	case msg != "":
-		out.Path = "/l/message/" + thread + "/" + msg
-		if chat {
-			out.RawQuery = url.Values{"context": {`{"contextType":"chat"}`}}.Encode()
-		}
+		return origin + "/l/message/" + escapeID(thread) + "/" + msg
 	case chat:
-		out.Path = "/l/chat/" + thread + "/conversations"
-	default:
-		return teamsURL
+		return origin + "/l/chat/" + escapeID(thread) + "/conversations" + ctx
 	}
-	// url.URL.String escapes the path ('%' becomes %25; ':' and '@' stay, as in Microsoft's examples).
-	return out.String()
+	return teamsURL
+}
+
+// escapeID percent-encodes a conversation id as a path segment, ':' and '@' included.
+func escapeID(id string) string {
+	return strings.NewReplacer(":", "%3A", "@", "%40").Replace(url.PathEscape(id))
 }
 
 // teamsOrigin returns the origin of href if it is the teams_url origin or one of the well-known Teams

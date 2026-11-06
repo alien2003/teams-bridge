@@ -1,6 +1,11 @@
 package hook
 
-import _ "embed"
+import (
+	_ "embed"
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // PreloadJS is the hook injected into every Teams document before its own scripts run
 // (Page.addScriptToEvaluateOnNewDocument). The Go side prepends a one-line preamble that sets
@@ -25,3 +30,48 @@ var WorkerJS string
 //
 //go:embed drain.js
 var WorkerDrainJS string
+
+// SurveyJS is a structure-only survey of the page's chat list (counts, attribute names, id kinds,
+// masked samples), evaluated once per browser session to show whether the conversation resolver
+// can work on this tenant's page; see survey.js and docs/DECISIONS.md D17.
+//
+//go:embed survey.js
+var SurveyJS string
+
+// Survey is SurveyJS's result.
+type Survey struct {
+	Elements  int            `json:"elements"`
+	Scanned   int            `json:"scanned"`
+	Items     int            `json:"items"`
+	Attrs     map[string]int `json:"attrs"`
+	Kinds     map[string]int `json:"kinds"`
+	Labelled  int            `json:"labelled"`
+	AvatarMRI int            `json:"avatarMRI"`
+	AvatarImg int            `json:"avatarImg"`
+	Samples   []string       `json:"samples"`
+	MS        int            `json:"ms"`
+	Path      string         `json:"path"`
+	Error     bool           `json:"error"`
+}
+
+// Counts renders a name→count map for a log line ("a:3,b:1"), capped, names masked if odd.
+func Counts(m map[string]int) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for i, k := range keys {
+		if i == 10 {
+			parts = append(parts, fmt.Sprintf("…(+%d)", len(keys)-10))
+			break
+		}
+		name := k
+		if len(name) > 40 || strings.ContainsAny(name, " :@/") {
+			name = Shape(name, 40)
+		}
+		parts = append(parts, fmt.Sprintf("%s:%d", name, m[k]))
+	}
+	return strings.Join(parts, ",")
+}

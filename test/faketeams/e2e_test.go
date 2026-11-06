@@ -231,7 +231,7 @@ func TestE2ENotificationsAllSources(t *testing.T) {
 	if alice.ev.Timestamp == 0 {
 		t.Error("options.timestamp not forwarded")
 	}
-	wantLink := e.srv.Origin() + "/l/chat/19:uni01_alice@thread.v2/conversations"
+	wantLink := e.srv.Origin() + "/l/chat/19%3Auni01_alice%40thread.v2/conversations?context=%7B%22contextType%22%3A%22chat%22%7D"
 	if got := hook.DeepLink(e.srv.TeamsURL(), alice.ev); got != wantLink {
 		t.Errorf("DeepLink(Alice) = %q, want %q", got, wantLink)
 	}
@@ -246,7 +246,7 @@ func TestE2ENotificationsAllSources(t *testing.T) {
 	if carol.transport != browser.TransportWorker || carol.ev.Body != "from sw-worker" {
 		t.Errorf("Carol: %+v", carol)
 	}
-	if got, want := hook.DeepLink(e.srv.TeamsURL(), carol.ev), e.srv.Origin()+"/l/message/19:carol@thread.tacv2/1648741500888"; got != want {
+	if got, want := hook.DeepLink(e.srv.TeamsURL(), carol.ev), e.srv.Origin()+"/l/message/19%3Acarol%40thread.tacv2/1648741500888"; got != want {
 		t.Errorf("DeepLink(Carol) = %q, want %q", got, want)
 	}
 

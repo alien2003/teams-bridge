@@ -480,6 +480,7 @@ func (d *daemon) runBrowser(ctx context.Context, started func()) error {
 	}
 	probe := time.NewTimer(first)
 	defer probe.Stop()
+	surveyed := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -502,6 +503,10 @@ func (d *daemon) runBrowser(ctx context.Context, started func()) error {
 			ok := act == session.ProbeOK
 			d.state.update(func(s *State) { s.SessionOK = ok })
 			d.log.Debug("probe", "action", act.String(), "why", r.Why, "err", perr)
+			if act == session.ProbeOK && !surveyed { // once per browser session, structure only
+				surveyed = true
+				d.surveyChatList(ctx, sess)
+			}
 			if act == session.ProbeRestart {
 				d.det.BrowserLost(session.ErrUnresponsive)
 				return session.ErrUnresponsive
@@ -553,4 +558,28 @@ func originOf(raw string) string {
 		return ""
 	}
 	return u.Scheme + "://" + u.Host
+}
+
+// surveyChatList logs, structure only, what the conversation resolver would find on this page:
+// how many chat-list elements hold a conversation id, under which attributes, with which labels and
+// avatars (hook.SurveyJS). It needs no notification, so it shows on a new tenant right away whether
+// taps will open the right chat.
+func (d *daemon) surveyChatList(ctx context.Context, sess *browser.Session) {
+	var sv hook.Survey
+	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := sess.Evaluate(sctx, hook.SurveyJS, &sv); err != nil {
+		d.log.Warn("chat list survey failed", "err", err)
+		return
+	}
+	samples := sv.Samples
+	if len(samples) > 3 {
+		samples = samples[:3]
+	}
+	for i := range samples {
+		samples[i] = hook.Shape(samples[i], 80) // already masked by the page; mask again, it is page data
+	}
+	d.log.Info("chat list survey", "conversation_items", sv.Items, "attrs", hook.Counts(sv.Attrs),
+		"kinds", hook.Counts(sv.Kinds), "labelled", sv.Labelled, "avatar_mri", sv.AvatarMRI, "avatar_img", sv.AvatarImg,
+		"samples", strings.Join(samples, " "), "elements", sv.Elements, "ms", sv.MS, "path", hook.Shape(sv.Path, 40), "error", sv.Error)
 }
