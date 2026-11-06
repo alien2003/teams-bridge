@@ -29,6 +29,33 @@ $sorted = $lines | Sort-Object -CaseSensitive
 $enc = New-Object System.Text.UTF8Encoding($false)
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 [IO.File]::WriteAllLines((Join-Path $OutDir "$Label.files.tsv"), [string[]]$sorted, $enc)
+# Registry: HKCU\Software key names (2 levels) and, recursively, every value under the keys a
+# Chromium/Edge launch is known to touch. Values are recorded as name=sha256(data) to keep secrets out.
+$reg = New-Object System.Collections.Generic.List[string]
+$sha = [Security.Cryptography.SHA256]::Create()
+function Add-RegKey([string]$path, [int]$depth, [bool]$values) {
+  $k = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+  if (-not $k) { return }
+  $reg.Add("K`t" + $k.Name)
+  if ($values) {
+    foreach ($n in $k.GetValueNames()) {
+      $v = $k.GetValue($n, $null, 'DoNotExpandEnvironmentNames')
+      if ($v -is [byte[]]) { $bytes = $v } else { $bytes = [Text.Encoding]::UTF8.GetBytes([string]($v -join "`n")) }
+      $h = ([BitConverter]::ToString($sha.ComputeHash($bytes)) -replace '-', '').Substring(0, 16)
+      $reg.Add("V`t" + $k.Name + "`t" + $n + "`t" + $h)
+    }
+  }
+  if ($depth -gt 0) {
+    foreach ($c in (Get-ChildItem -LiteralPath $path -ErrorAction SilentlyContinue)) { Add-RegKey $c.PSPath ($depth - 1) $values }
+  }
+}
+Add-RegKey 'HKCU:\Software' 2 $false
+foreach ($p in @('HKCU:\Software\Microsoft\Edge', 'HKCU:\Software\Microsoft\EdgeUpdate', 'HKCU:\Software\Microsoft\Edge Beta',
+                 'HKCU:\Software\Classes\MSEdgeHTM', 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run')) {
+  Add-RegKey $p 20 $true
+}
+[IO.File]::WriteAllLines((Join-Path $OutDir "$Label.reg.tsv"), [string[]]($reg | Sort-Object -Unique -CaseSensitive), $enc)
+
 $tasks = & schtasks.exe /query /fo csv /nh 2>$null | ForEach-Object { ($_ -split '","')[0].Trim('"') } | Where-Object { $_ -and $_ -ne 'TaskName' } | Sort-Object -Unique -CaseSensitive
 [IO.File]::WriteAllLines((Join-Path $OutDir "$Label.tasks.txt"), [string[]]$tasks, $enc)
-Write-Output ("snapshot {0}: {1} entries, {2} tasks" -f $Label, $sorted.Count, $tasks.Count)
+Write-Output ("snapshot {0}: {1} entries, {2} registry lines, {3} tasks" -f $Label, $sorted.Count, $reg.Count, $tasks.Count)

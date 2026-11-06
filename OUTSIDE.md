@@ -29,6 +29,9 @@ Paths are globs; `~` is the WSL home directory, `%VAR%` a Windows environment va
 | `%TEMP%\Microsoft.PackageManagement` | noise (host) | PowerShell's PackageManagement module cache, touched by any `powershell.exe` start (including our snapshot script) | none | noise |
 | `%TEMP%\wsl-crashes` | noise (host) | WSL crash-dump folder | none | noise |
 | `/tmp/.tmp??????` | noise (mise) | `mise run` writes each task script to a transient Rust `tempfile` in the system temp dir (mise's own process does not see the project `TMPDIR`); it is gone when the task ends, but the `mise run check-outside` that is checking sees its own | none (transient) | noise |
+| `%USERPROFILE%\ntuser.dat*` | noise (host) | Transaction logs of the user registry hive; change whenever any app writes HKCU | none | noise |
+| `%LOCALAPPDATA%\Microsoft\Windows\UsrClass.dat*` | noise (host) | Same for the HKCU\Software\Classes hive | none | noise |
+| `%LOCALAPPDATA%\Microsoft\TokenBroker\*` | noise (host) | Windows Web Account Manager token cache | none (not ours) | noise |
 <!-- END outside-table -->
 
 ## apt packages

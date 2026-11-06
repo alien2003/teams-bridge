@@ -26,6 +26,10 @@ awk -F'\t' 'FNR==NR {b[$1]=$2"\t"$3"\t"$4; next}
     for (p in b) if (!(p in a)) print "removed\t" p
     for (p in a) if ((p in b) && a[p] != b[p]) { split(a[p], x, "\t"); print (x[1]=="d" ? "touched" : "modified") "\t" p }
   }' "$SNAP/baseline.files.tsv" "$SNAP/$label.files.tsv" | sort -t$'\t' -k2 > "$diff_out"
+if [[ -f "$SNAP/baseline.reg.tsv" ]]; then
+  comm -13 "$SNAP/baseline.reg.tsv" "$SNAP/$label.reg.tsv" | sed 's/^/reg-added\tregistry:/' >> "$diff_out" || true
+  comm -23 "$SNAP/baseline.reg.tsv" "$SNAP/$label.reg.tsv" | sed 's/^/reg-removed\tregistry:/' >> "$diff_out" || true
+fi
 comm -13 "$SNAP/baseline.tasks.txt" "$SNAP/$label.tasks.txt" | sed 's/^/task-added\tschtasks:/' >> "$diff_out" || true
 comm -23 "$SNAP/baseline.tasks.txt" "$SNAP/$label.tasks.txt" | sed 's/^/task-removed\tschtasks:/' >> "$diff_out" || true
 
@@ -34,7 +38,7 @@ globs=()
 while IFS=$'\t' read -r path _rest; do
   case "$path" in
     %*%*) g="${path#%}"; g="${g/\%/}"; globs+=( "${g//\\//}" ) ;;
-    schtasks:*) globs+=( "$path" ) ;;
+    schtasks:*|registry:*) globs+=( "${path//\\//}" ) ;;
   esac
 done < <("$ROOT/scripts/outside-table.sh")
 
