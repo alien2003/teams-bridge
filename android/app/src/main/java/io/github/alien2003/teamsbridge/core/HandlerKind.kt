@@ -15,7 +15,7 @@ enum class HandlerKind(val label: String) {
     companion object {
         const val TEAMS_APP_PACKAGE = "com.microsoft.teams"
 
-        /** The URIs the Settings screen resolves; a PWA may be scoped to `/v2/` only. */
+        /** The URIs the "Open Teams in" list resolves; a PWA may be scoped to `/v2/` only. */
         val QUERY_URIS = listOf("https://teams.microsoft.com/", "https://teams.microsoft.com/v2/")
 
         fun classify(packageName: String, filterMatchesHost: Boolean): HandlerKind = when {

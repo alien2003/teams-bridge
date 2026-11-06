@@ -472,3 +472,17 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   shared for format analysis are never written to code, tests, docs or commits (tests use
   synthetic ids of the same shape); `mise run secrets-check` also fails on any entry of a local,
   git-ignored stop list (`.local/denylist.txt`).
+
+## D18 — Android: one scrolling screen, settings inline, no overflow menu (brief corrected: §6 Settings screen)
+
+* At the maintainer's request (the app is small; an overflow menu holding only "Settings" is not
+  needed) `SettingsActivity`, its layout and `res/menu/main.xml` are gone. BRIEF §6's separate
+  **Settings** screen is folded into `MainActivity`, one scrolling page, top to bottom:
+  1. Pair (unpaired), "waiting for pair ping" with Retry/Cancel (paired, no contact yet) or Status
+     (paired and heard from the daemon); the placeholder-Firebase banner as before.
+  2. "Open Teams in" — the handler list (rebuilt in `onResume`), "system default" first, the
+     "unavailable" entry, the no-handlers hint and a single "Test: open Teams" button; in every state.
+  3. Notifications — allowed/blocked, "Allow" (API 33+, not granted; a second denial opens the app's
+     notification settings) and "Notification settings". The Status warning scrolls here.
+  4. Unpair (with its confirmation) — only once the daemon has been heard from; while waiting, the
+     waiting section's Cancel does the same. After unpairing the page shows Pair again.

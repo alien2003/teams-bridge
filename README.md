@@ -57,8 +57,9 @@ tbd pair       # prints a QR code and the 26-character code, then sends pairing 
 ```
 
 Install `dist/teams-bridge-debug.apk` on the phone, open **Teams Bridge → Pair**, scan the QR code
-(or type the code), and wait for **Paired ✓**. In **Settings** pick where a tap opens Teams (a
-browser, or the Teams PWA if you installed one) and grant the notification permission.
+(or type the code), and wait for **Paired ✓**. Further down the same screen, under **Open Teams in**,
+pick where a tap opens Teams (a browser, or the Teams PWA if you installed one), and allow
+notifications.
 
 ```sh
 tbd test-push  # a test notification should arrive on the phone

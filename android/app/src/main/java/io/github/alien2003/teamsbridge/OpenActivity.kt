@@ -48,7 +48,7 @@ class OpenActivity : Activity() {
     }
 }
 
-/** Opens a Teams URL in the handler chosen under Settings → "Open Teams in:". */
+/** Opens a Teams URL in the handler chosen under "Open Teams in" on the main screen. */
 object Launcher {
     fun open(ctx: Context, url: String?) {
         val uri = Uri.parse(UrlPolicy.sanitize(url))

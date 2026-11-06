@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- One scrolling screen: Pair / waiting / Status, then "Open Teams in", Notifications and, when
+     paired, Unpair. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
@@ -13,6 +15,7 @@
         app:title="@string/app_name" />
 
     <ScrollView
+        android:id="@+id/scroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
@@ -46,6 +49,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:accessibilityHeading="true"
                     android:text="@string/pair_title"
                     android:textAppearance="?attr/textAppearanceTitleLarge" />
 
@@ -110,6 +114,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:accessibilityHeading="true"
                     android:text="@string/waiting_title"
                     android:textAppearance="?attr/textAppearanceTitleLarge" />
 
@@ -156,6 +161,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:accessibilityHeading="true"
                     android:text="@string/status_title"
                     android:textAppearance="?attr/textAppearanceTitleLarge" />
 
@@ -167,25 +173,134 @@
                     android:lineSpacingMultiplier="1.4"
                     android:textAppearance="?attr/textAppearanceBodyLarge" />
 
+                <!-- Tapping it scrolls to the Notifications section below. -->
                 <TextView
                     android:id="@+id/notificationsWarning"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:background="?attr/colorErrorContainer"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
                     android:padding="12dp"
                     android:text="@string/notifications_warning"
                     android:textAppearance="?attr/textAppearanceBodyMedium"
                     android:textColor="?attr/colorOnErrorContainer"
                     android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- Open Teams in (every state) -->
+            <com.google.android.material.divider.MaterialDivider
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginVertical="24dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:accessibilityHeading="true"
+                android:text="@string/open_in_title"
+                android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/open_in_hint"
+                android:textAppearance="?attr/textAppearanceBodySmall" />
+
+            <RadioGroup
+                android:id="@+id/handlerGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp" />
+
+            <TextView
+                android:id="@+id/noHandlers"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/handler_none"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/openTeamsButton"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/open_in_test" />
+
+            <!-- Notifications (every state) -->
+            <LinearLayout
+                android:id="@+id/notificationsSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <com.google.android.material.divider.MaterialDivider
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginVertical="24dp" />
+
+                <TextView
+                    android:id="@+id/notificationsTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:accessibilityHeading="true"
+                    android:text="@string/notifications_title"
+                    android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+                <TextView
+                    android:id="@+id/notificationsStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
 
                 <Button
-                    android:id="@+id/openTeamsButton"
-                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:id="@+id/allowNotificationsButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
-                    android:text="@string/open_teams" />
+                    android:layout_marginTop="8dp"
+                    android:text="@string/notifications_allow"
+                    android:visibility="gone" />
+
+                <Button
+                    android:id="@+id/notificationSettingsButton"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/notifications_settings" />
+            </LinearLayout>
+
+            <!-- Unpair (paired and heard from the daemon; while waiting, "Cancel pairing" does it) -->
+            <LinearLayout
+                android:id="@+id/unpairSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <com.google.android.material.divider.MaterialDivider
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginVertical="24dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:accessibilityHeading="true"
+                    android:text="@string/pairing_title"
+                    android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+                <Button
+                    android:id="@+id/unpairButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/unpair" />
             </LinearLayout>
         </LinearLayout>
     </ScrollView>

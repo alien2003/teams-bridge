@@ -5,7 +5,6 @@
     <string name="cancel">Cancel</string>
 
     <!-- Main / Pair -->
-    <string name="menu_settings">Settings</string>
     <string name="placeholder_banner">This build uses the placeholder google-services.json, so Firebase Cloud Messaging cannot deliver anything to it. Rebuild with the google-services.json of your Firebase project.</string>
     <string name="pair_title">Pair with tbd</string>
     <string name="pair_intro">On the computer that runs tbd, run <tt>tbd pair</tt>. Scan the QR code it shows, or type the code.</string>
@@ -43,26 +42,26 @@
     <string name="watchdog_job_scheduled">Checks hourly.</string>
     <string name="watchdog_job_stopped">Hourly check is not scheduled.</string>
     <string name="watchdog_job_unknown">Hourly check: starting.</string>
-    <string name="notifications_warning">Notifications are blocked: nothing will show. Tap to open Settings.</string>
-    <string name="open_teams">Open Teams</string>
+    <string name="notifications_warning">Notifications are blocked: nothing will show. Tap to fix it below.</string>
 
-    <!-- Settings -->
-    <string name="settings_title">Settings</string>
-    <string name="settings_open_in">Open Teams in:</string>
-    <string name="settings_open_in_hint">Tapping a notification opens its Teams link here. A Teams PWA installed from Edge or Chrome opens as an app; other browsers open a tab.</string>
+    <!-- Open Teams in -->
+    <string name="open_in_title">Open Teams in</string>
+    <string name="open_in_hint">Tapping a notification opens its Teams link here. A Teams PWA installed from Edge or Chrome opens as an app; other browsers open a tab.</string>
     <string name="handler_system_default">System default</string>
     <string name="handler_item">%1$s · %2$s</string>
     <string name="handler_unavailable">%1$s · not installed</string>
     <string name="handler_none">No browser can open https links on this phone.</string>
-    <string name="settings_test_open">Open Teams now</string>
-    <string name="settings_notifications">Notifications</string>
+    <string name="open_in_test">Test: open Teams</string>
+
+    <!-- Notifications permission -->
+    <string name="notifications_title">Notifications</string>
     <string name="notifications_allowed">Notifications are allowed.</string>
     <string name="notifications_blocked">Notifications are blocked.</string>
     <string name="notifications_allow">Allow notifications</string>
     <string name="notifications_settings">Notification settings</string>
-    <string name="settings_pairing">Pairing</string>
-    <string name="pairing_paired">This phone is paired with tbd.</string>
-    <string name="pairing_not_paired">Not paired.</string>
+
+    <!-- Unpair -->
+    <string name="pairing_title">Pairing</string>
     <string name="unpair">Unpair</string>
     <string name="unpair_confirm_title">Unpair this phone?</string>
     <string name="unpair_confirm_text">The pairing secret is deleted from this phone and the topic is unsubscribed. Run tbd pair again to receive notifications.</string>
@@ -84,7 +83,7 @@
         <item quantity="one">Nothing from tbd for %d hour. Check that it is running and online.</item>
         <item quantity="other">Nothing from tbd for %d hours. Check that it is running and online.</item>
     </plurals>
-    <string name="handler_missing">The app chosen in Settings cannot open this link. Pick another one.</string>
+    <string name="handler_missing">The app chosen under “Open Teams in” cannot open this link. Pick another one.</string>
     <string name="chooser_title">Open Teams with</string>
     <string name="no_handler">No app can open this link.</string>
 

@@ -41,11 +41,6 @@
             </intent-filter>
         </activity>
 
-        <activity
-            android:name=".SettingsActivity"
-            android:exported="false"
-            android:parentActivityName=".MainActivity" />
-
         <!-- Notification-tap trampoline (no UI): opens the URL in the chosen handler, chooser fallback. -->
         <activity
             android:name=".OpenActivity"
