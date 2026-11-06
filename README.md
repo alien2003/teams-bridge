@@ -47,6 +47,10 @@ does not work until you rebuild with your real file.
 
 ## Set up
 
+Put the binary on your `PATH` (Linux: `install -m755 dist/tbd ~/.local/bin/tbd`; Windows: copy
+`dist\tbd.exe` to e.g. `%LOCALAPPDATA%\Programs\tbd\`) and run the commands below from outside the
+repository: inside the checkout, mise sets `TBD_HOME` to the development data dir `.local/tbd`.
+
 ```sh
 tbd login      # a browser window opens with the daemon's own profile: sign in to Teams, close it
 tbd pair       # prints a QR code and the 26-character code, then sends pairing pings
@@ -68,11 +72,13 @@ the phone gets a "session expired" alert.
 
 ### WSL
 
-WSL does not start on its own, and the distro stops when nothing keeps it running. `tbd install` in
-WSL writes and enables the systemd user unit and prints the two Windows-side steps that keep it
-alive: `loginctl enable-linger`, and a logon task that starts the distro (it runs `sleep infinity`,
-not a second `tbd`, so systemd stays the only supervisor), plus the `.wslconfig` setting that stops
-the VM from idling out. systemd must be enabled in `/etc/wsl.conf` (`[boot] systemd=true`).
+WSL does not start on its own, and a distribution stops when nothing keeps it running. In WSL,
+`tbd install` writes and enables the systemd user unit and prints three steps: run
+`loginctl enable-linger` once inside WSL (so the user manager, and tbd, run without a login); register
+an unelevated PowerShell logon task on Windows that boots the distribution and runs only
+`sleep infinity` (not a second `tbd`, so systemd stays the only supervisor); and, optionally, set
+`[general] instanceIdleTimeout=-1` in `%UserProfile%\.wslconfig`, which keeps the distribution (not
+just the VM) from idling out. systemd must be enabled in `/etc/wsl.conf` (`[boot] systemd=true`).
 
 ### Windows
 

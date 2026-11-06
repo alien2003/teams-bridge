@@ -33,7 +33,8 @@ turned out to be wrong against reality, the entry says so and what was done inst
 ## D3 — Edge in WSL without apt (BRIEF §1.4)
 
 * `mise run edge` downloads the newest `microsoft-edge-stable` from packages.microsoft.com, verifies
-  the SHA-256 from the signed `Packages` index and `dpkg -x`es it into `.tools/edge/`.
+  the SHA-256 from the `Packages` index (fetched over HTTPS only; the index signature is not
+  checked) and `dpkg -x`es it into `.tools/edge/`.
 * `ldd` reports only Qt5/Qt6 missing, and only for `libqt5_shim.so` / `libqt6_shim.so`, which Edge
   loads solely for a Qt desktop UI. No apt package is needed; the script would stop and list
   packages otherwise.
@@ -95,7 +96,9 @@ turned out to be wrong against reality, the entry says so and what was done inst
 * `config.toml` is written atomically with mode 0600 (it holds the secret).
 * Browser version: `--version` on Linux. On Windows `msedge.exe --version` opens a browser window
   instead of printing, so the version comes from the version-named directory next to `msedge.exe`
-  (`Application\157.0.4341.42\`); the daemon cross-checks with CDP `Browser.getVersion` after launch.
+  (`Application\157.0.4341.42\`). The daemon reads it again before every launch and cross-checks
+  with CDP `Browser.getVersion` after attaching; if the running browser differs (an auto-update, or a
+  version staged next to a still-old msedge.exe) it relaunches once with the running version's UA.
 
 ## D8 — Browser, hook and fake Teams (step 3)
 
@@ -198,8 +201,9 @@ Electron preload/IPC.
   -- tbd run` would start a second daemon on the same profile — and `.wslconfig` `[general]
   instanceIdleTimeout=-1` (`vmIdleTimeout` only applies after all distros stopped).
 * **Windows** (D5): XML task, `%SystemRoot%\System32\conhost.exe --headless "<exe>" run --home <home>
-  --log-file <home>\tbd.log` (under a headless console stderr goes nowhere; `--log-file` rotates at
-  10 MiB). RestartOnFailure count 255 (the schema maximum). Install also runs `schtasks /run`.
+  --log-file <home>\tbd.log` (under a headless console stderr goes nowhere; the log file rotates at
+  10 MiB while running, one `.1` generation is kept, and fatal startup errors are written to it too).
+  RestartOnFailure count 255 (the schema maximum). Install also runs `schtasks /run`.
 * Round-trip tests: Linux uses `systemctl --user --runtime link/enable` (symlinks in tmpfs
   `$XDG_RUNTIME_DIR`, never started, `~/.config/systemd` asserted unchanged) plus `systemd-analyze
   verify`; Windows creates/queries/deletes `tbd-test-<random>` (action `whoami.exe`, never run;
@@ -314,3 +318,39 @@ Electron preload/IPC.
 * **test-win plumbing.** Test binaries run with stdin from `/dev/null` (a Windows exe reading the
   loop's stdin ended the loop after the first package); snapshot lists are compared after an
   `LC_ALL=C` sort (PowerShell's ordinal sort differs from the locale's).
+
+## D15 — Fixes from the independent review (step 7)
+
+A read-only review in five dimensions (brief compliance, protocol, security, runtime, hygiene), each
+finding checked by a skeptical verifier, found 31 real issues; all are fixed:
+
+* **WSL core dumps on the Windows side (hygiene).** Two crashing `.tools/edge` processes had WSL's
+  crash handler write ~30 MB dumps each into the real `%TEMP%\wsl-crashes`. The dev wrapper now runs
+  Edge under `prlimit --core=1` (measured: an RLIMIT_CORE of exactly 1 byte skips the core_pattern
+  pipe; a shell's `ulimit -c 1` is 1 *block* and does not), sets `GSETTINGS_BACKEND=memory` and
+  `NO_AT_BRIDGE=1` (Edge's first launch had created `/run/user/1000/dconf/user` and D-Bus-activated
+  `at-spi-dbus-bus`); all three leftovers are `run` rows in OUTSIDE.md.
+* **Outside-check matching is exact.** A row covered its path *and everything below it*, so the bare
+  `%TEMP%` row accepted any file in the real TEMP. Rows are now globs matched exactly (descendants only
+  with a trailing `*`); check-outside's own exclusions distinguish trees from raw prefixes; a leftover
+  `tbd-test-*` task always fails; a baseline is taken only with `--baseline`; the post-run Windows
+  snapshot sees the real `%TEMP%` (test-win had exported the sandbox TEMP to it). PrefsEnclave values
+  are deleted only if test-win recorded them as created by our browsers.
+* **`tbd login`** accepts every Teams origin (`teams_url`'s plus teams.microsoft.com /
+  teams.cloud.microsoft / teams.live.com), and applies the same UA override *with client hints* as the
+  daemon (before, the window sent `Sec-CH-UA-Platform: "Linux"` from WSL).
+* **`tbd pair --new` refuses while the daemon runs** (it would keep sending with the old secret).
+* **Flood control for page-originated input:** notifications are rate limited (burst 30, 1/s
+  sustained), per-event log lines are throttled (first 10, then every 100th), dedup keys are hashed,
+  the worker queue drain is bounded (64 reports per call, size-checked).
+* **No secret in error messages:** a TOML syntax error reports the line and key only (the parser
+  quotes the offending token, e.g. an unquoted secret); an unreadable `fcm_service_account` value is
+  named only if it looks like a path (not JSON, PEM or a base64 blob); a leading BOM is ignored.
+* **Alerts:** only a *delivered* alert is persisted for the cross-restart debounce; the heartbeat loop
+  logs through the daemon's logger.
+* **Protocol:** the Go reference filter compares Unix seconds (no `time.Unix` overflow on hostile
+  `ts`); the Android receiver requires padded base64 like Go; the Kotlin docs no longer claim strict
+  parity with Go's JSON decoder (Android's org.json is lenient; only authenticated plaintext reaches it).
+* **`mise run test` vs `mise run test-win`** stay separate tasks (BRIEF §9 lists both): test-win needs
+  the Windows host, takes minutes and flashes a login window; both must be green.
+* The `MISE_*_DIR` pins of D2 had not actually landed in `mise.toml`; they are there now.
