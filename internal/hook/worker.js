@@ -108,6 +108,7 @@
         tag: options.tag != null ? String(options.tag) : "",
         data: options.data !== undefined ? options.data : null,
         icon: options.icon != null ? String(options.icon) : "",
+        timestamp: typeof options.timestamp === "number" ? options.timestamp : null,
         href: href(),
         optionKeys: keysOf(options),
       });

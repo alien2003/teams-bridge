@@ -76,12 +76,23 @@ type daemon struct {
 	outMu     sync.RWMutex // guards closing the outbox against concurrent enqueue
 
 	mu      sync.Mutex
-	recent  map[[32]byte]time.Time // dedup of identical notifications (page + SW for one message)
-	counts  map[string]int         // occurrences per throttled log line
-	bucket  tokenBucket            // page-originated notifications per second
-	ver     config.Version         // last version the running browser reported (CDP)
-	verDisk string                 // the on-disk version that ver was learned for
+	recent  map[[32]byte]seen // dedup: same message via two paths, or reported twice
+	counts  map[string]int    // occurrences per throttled log line
+	bucket  tokenBucket       // page-originated notifications per second
+	ver     config.Version    // last version the running browser reported (CDP)
+	verDisk string            // the on-disk version that ver was learned for
 }
+
+// seen records a recent notification for deduplication.
+type seen struct {
+	at     time.Time
+	source string
+	full   bool // keyed by text + conversation + timestamp (else by text only)
+}
+
+// crossPathWindow: the same text from a different source (window vs service worker) within this
+// window is the same message reported twice.
+const crossPathWindow = 3 * time.Second
 
 // Page-originated notifications are rate limited: any script on the Teams page can call the
 // binding, and every accepted call is a push to the phone.
@@ -146,7 +157,7 @@ func Run(ctx context.Context, o Options) error {
 		outbox:    make(chan proto.Message, outboxSize),
 		closing:   make(chan struct{}),
 		delivered: make(chan struct{}),
-		recent:    map[[32]byte]time.Time{},
+		recent:    map[[32]byte]seen{},
 		counts:    map[string]int{},
 	}
 	d.alerts = session.NewDebouncer(o.Debounce, nil)
@@ -339,17 +350,26 @@ func (d *daemon) onBinding(transport, payload string) {
 
 func (d *daemon) onNotification(ev hook.Event) {
 	now := time.Now()
-	// Teams' tag is always empty: the conversation and Teams' own timestamp separate two messages
-	// with the same text, while the same message reported through two paths still matches.
-	key := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%d", ev.Title, ev.Body, ev.Tag, ev.Conversation, ev.Timestamp)))
+	// Two keys: the same text in two chats (or two messages with the same text) must both go out,
+	// while the same message reported through two paths (the page and the service worker; the
+	// worker cannot resolve a conversation) must go out once.
+	textKey := sha256.Sum256([]byte(ev.Title + "\x00" + ev.Body + "\x00" + ev.Tag))
+	fullKey := sha256.Sum256([]byte(fmt.Sprintf("%x\x00%s\x00%d", textKey, ev.Conversation, ev.Timestamp)))
 	d.mu.Lock()
-	for k, t := range d.recent {
-		if now.Sub(t) > dedupWindow {
+	for k, r := range d.recent {
+		if now.Sub(r.at) > dedupWindow {
 			delete(d.recent, k)
 		}
 	}
-	_, dup := d.recent[key]
-	d.recent[key] = now
+	dup := false
+	if r, ok := d.recent[fullKey]; ok && r.full {
+		dup = true
+	}
+	if r, ok := d.recent[textKey]; ok && r.source != ev.Source && now.Sub(r.at) < crossPathWindow {
+		dup = true
+	}
+	d.recent[fullKey] = seen{at: now, source: ev.Source, full: true}
+	d.recent[textKey] = seen{at: now, source: ev.Source}
 	allowed := dup || d.bucket.allow(now)
 	d.mu.Unlock()
 	d.log.Debug("notification raw", "source", ev.Source, "title", ev.Title, "body", ev.Body, "tag", ev.Tag,
@@ -368,13 +388,13 @@ func (d *daemon) onNotification(ev hook.Event) {
 		return
 	}
 	url := hook.DeepLink(d.cfg.TeamsURL, ev)
+	// Structure only: lengths, option names, the page's origin, whether the avatar named a sender,
+	// the resolver's counts and the shape of the resolved id (ids tokenised, no fingerprint).
 	d.log.Info("notification captured", "source", ev.Source, "title_len", len(ev.Title), "body_len", len(ev.Body),
 		"data", hook.DescribeData(ev.Data), "deep_link", url != d.cfg.TeamsURL,
-		// Structure only (letters → a, digits → 9): shows whether the tag or icon carries an id
-		// in some format DeepLink does not know yet, without logging the id itself.
-		"tag_shape", hook.Shape(ev.Tag, 96), "icon_shape", hook.Shape(ev.Icon, 160),
 		"options", strings.Join(ev.OptionKeys, ","), "page_origin", originOf(ev.Href),
-		"conversation_shape", hook.Shape(ev.Conversation, 120), "dom", strings.Join(ev.DOMProbe, " | "))
+		"sender_id", hook.SenderMRI(ev.Icon) != "", "resolve", ev.Resolve,
+		"conversation_shape", hook.Shape(ev.Conversation, 120))
 	d.state.update(func(s *State) { s.LastEvent = now; s.SessionOK = true })
 	d.enqueue(proto.Message{T: proto.TypeMsg, Title: ev.Title, Body: ev.Body, Tag: ev.Tag, URL: url})
 }

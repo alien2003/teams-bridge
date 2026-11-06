@@ -108,7 +108,9 @@ Edge keeps some per-user bookkeeping in the registry no matter which profile it 
 * **A tap opens Teams but not the chat.** Teams' notifications carry no chat id; tbd finds the chat
   in Teams' chat list, which exists only in the **Chat** view. Run `tbd login`, open Chat, close the
   window, restart the daemon. The log line `chat list survey` (no names or text in it) should show
-  `conversation_items` above 0. Channel posts open Teams for now.
+  `conversation_items` above 0. Channel posts open Teams for now, and so does a message whose chat
+  the list does not show with that message as its preview (tbd prefers Teams' start page to a
+  wrong chat).
 * **Nothing arrives.** `tbd status` shows whether notifications are being captured; `tbd run
   --log-level debug` logs their raw structure (including text — debug only). `tbd test-push` checks
   the FCM path on its own.

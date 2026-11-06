@@ -21,93 +21,19 @@
     }
   }
 
-  // Structure-only search of the page for the sender's id (taken from the avatar URL): which
-  // elements carry it, and does an ancestor carry an attribute that looks like a conversation id?
-  // Only tag/attribute names and masked shapes (letters → a, digits → 9) leave this function.
-  // Diagnostics for the deep-link design; never throws.
-  function shapeOf(v, max) {
-    v = String(v);
-    var out = "";
-    for (var i = 0; i < v.length && i < max; i++) {
-      var c = v.charAt(i);
-      if (/[0-9]/.test(c)) out += "9";
-      else if (/\s/.test(c)) out += " ";
-      else if (/[A-Za-z]/.test(c) || c.charCodeAt(0) > 127) out += "a";
-      else out += c;
-    }
-    return v.length > max ? out + "…" : out;
-  }
-  // senderOf: the path segment of the avatar URL that is a user id. Personal Teams puts it right
-  // after /users/, work tenants after /users/<tenant>/profilepicturev2/ (measured).
-  function senderOf(icon) {
-    try {
-      var path = String(icon || "").split(/[?#]/)[0].split("/");
-      for (var i = 0; i < path.length; i++) {
-        var id = decodeURIComponent(path[i]);
-        if (/^\d{1,2}:[A-Za-z]+:[A-Za-z0-9._:@-]{2,200}$/.test(id)) return id;
-      }
-    } catch (e) {}
-    return "";
-  }
-  var CONV_RE = /\d{1,2}:[A-Za-z0-9._%:-]{3,}@[A-Za-z0-9.]+/;
-  function locate(icon) {
-    var out = [];
-    try {
-      var id = senderOf(icon);
-      if (!id || typeof document === "undefined" || !document.querySelectorAll) return out;
-      var enc = encodeURIComponent(id);
-      var els = document.querySelectorAll("*");
-      var n = Math.min(els.length, 30000), hits = 0, t0 = Date.now();
-      for (var i = 0; i < n; i++) {
-        var attrs = els[i].attributes;
-        if (!attrs) continue;
-        for (var j = 0; j < attrs.length; j++) {
-          var v = attrs[j].value;
-          if (!v || (v.indexOf(id) < 0 && v.indexOf(enc) < 0)) continue;
-          hits++;
-          if (out.length < 12) {
-            var found = "", a = els[i], lvl = 0;
-            while (a && a.attributes && lvl < 15 && !found) {
-              for (var k = 0; k < a.attributes.length; k++) {
-                var av = a.attributes[k].value, mm = av && CONV_RE.exec(av);
-                if (mm && mm[0].indexOf(id) < 0) {
-                  found = " conv@" + lvl + ":" + a.tagName.toLowerCase() + "[" + a.attributes[k].name + "]=" + shapeOf(mm[0], 80);
-                  break;
-                }
-              }
-              a = a.parentElement;
-              lvl++;
-            }
-            out.push(els[i].tagName.toLowerCase() + "[" + attrs[j].name + "]" + (found || " conv=none"));
-          }
-          break;
-        }
-      }
-      out.unshift("hits=" + hits + " scanned=" + n + " ms=" + (Date.now() - t0));
-    } catch (e) {
-      out.push("error");
-    }
-    return out;
-  }
-
-  // conversationOf finds the conversation a notification belongs to by reading the page (never
-  // writing): Teams v2 passes no conversation id with the notification, but the sender's id is in the
-  // avatar URL, and the chat list renders each chat as an element whose attribute holds the
-  // conversation id (inside Fluent's data-fui-tree-item-value and the item's id, measured) around avatars
-  // that carry the participant's id (data-person-mri, img src). One pass over the DOM collects
-  // (a) elements carrying the sender id, resolved to their nearest ancestor holding a conversation
-  // id (+1 each), and (b) every chat-list item (role treeitem/option/listitem/row carrying a
-  // conversation id in an attribute), scored by
-  // its preview showing this message's text (+4: the chat that just received it — this is what
-  // separates a group message from the sender's 1:1 chat when the title is the sender's name) and
-  // by its accessible name (aria-labelledby) against the notification title (equal +3, one
-  // containing the other +2). Highest score wins; ties go to the first in the list (most recent).
-  // It runs ~600 ms after the notification, outside Teams' toast pipeline, once the list has caught up.
-  // Returns "" if nothing usable is found.
-  // A conversation id inside an attribute value: Teams wraps it ("<prefix>_19:…@thread.v2" in
-  // data-fui-tree-item-value, "…_<id>" in element ids; measured in personal and work tenants).
+  // conversationOf finds the chat a notification belongs to by READING the page (never writing):
+  // Teams v2 passes no conversation id with a notification (measured, docs/DECISIONS.md D17), but
+  // its chat list renders every chat as an item (role treeitem/option/listitem/row) whose attributes
+  // carry the conversation id behind a prefix, with the chat's last-message preview inside. The chat
+  // that just received this message shows it as its preview, so: the first item in list order (the
+  // chat that just moved to the top) whose preview shows this notification's body. The comparison is
+  // anchored — the preview IS the body, "<name>: <body>", or either truncated with an ellipsis — and
+  // happens inside the page only. No match means "" (the phone then opens Teams): avatars, titles
+  // and labels never pick a chat on their own, because they cannot tell a group message from the
+  // sender's 1:1 chat, and channel posts are not in the chat list at all.
+  // Returns {id, stats} where stats counts the items seen and the preview matches (diagnostics).
   var CONV_SUB = /\d{1,2}:[A-Za-z0-9._~%+=-]+@(?:thread\.v2|thread\.tacv2|thread\.skype|unq\.gbl\.spaces)|48:notes/;
-  var LIST_ROLE = /^(?:treeitem|option|listitem|row)$/;
+  var LIST_SEL = '[role="treeitem"],[role="option"],[role="listitem"],[role="row"]';
   // convAttr: the conversation id an element carries, preferring Fluent's tree-item value, then its
   // id, then any attribute.
   function convAttr(el) {
@@ -124,82 +50,67 @@
     }
     return "";
   }
-  function convNear(el) {
-    for (var lvl = 0; el && lvl < 25; lvl++, el = el.parentElement) {
-      var c = convAttr(el);
-      if (c) return c;
-    }
-    return "";
+  function norm(v) {
+    return String(v || "").replace(/[​-‏⁠﻿]/g, "").replace(/\s+/g, " ").trim();
   }
-  // labelOf is an element's accessible name from aria-labelledby (or aria-label), normalised.
-  function labelOf(el) {
+  function untail(v) {
+    return v.replace(/(?:…|\.\.\.)$/, "").trim();
+  }
+  // previewShows: is the text t (one element of an item) this notification's body as a preview?
+  function previewShows(t, body) {
+    if (!t || !body || t.length > 2000) return false;
+    var cands = [t], m = /^[^:]{1,80}:\s(.+)$/.exec(t);
+    if (m) cands.push(m[1]);
+    var bcut = untail(body);
+    for (var i = 0; i < cands.length; i++) {
+      var c = cands[i];
+      if (c === body) return true;
+      var cut = untail(c);
+      if (cut !== c && cut.length >= 8 && body.indexOf(cut) === 0) return true; // preview truncated
+      if (bcut !== body && bcut.length >= 8 && c.indexOf(bcut) === 0) return true; // body truncated
+    }
+    return false;
+  }
+  // labelElements: the elements naming an item (aria-labelledby targets inside it); their text is
+  // the chat's title, never its preview.
+  function labelElements(item) {
+    var out = [];
     try {
-      var ids = String(el.getAttribute("aria-labelledby") || "").split(/\s+/), parts = [];
+      var ids = String(item.getAttribute("aria-labelledby") || "").split(/\s+/);
       for (var i = 0; i < ids.length && i < 8; i++) {
         var l = ids[i] && document.getElementById(ids[i]);
-        if (l) parts.push(l.textContent || "");
+        if (l && item.contains(l)) out.push(l);
       }
-      var text = parts.length ? parts.join(" ") : String(el.getAttribute("aria-label") || "");
-      return text.replace(/\s+/g, " ").trim().slice(0, 300);
-    } catch (e) {
-      return "";
+    } catch (e) {}
+    return out;
+  }
+  function itemShows(item, body) {
+    var skip = labelElements(item);
+    var els = item.querySelectorAll("*");
+    for (var i = 0; i < els.length && i < 400; i++) {
+      var inLabel = false;
+      for (var s = 0; s < skip.length && !inLabel; s++) inLabel = skip[s] === els[i] || skip[s].contains(els[i]);
+      if (!inLabel && previewShows(norm(els[i].textContent), body)) return true;
     }
+    return false;
   }
   function conversationOf(icon, title, body) {
+    var stats = { items: 0, matches: 0 }, found = "";
     try {
-      if (typeof document === "undefined" || !document.querySelectorAll) return "";
-      var id = senderOf(icon), enc = id ? encodeURIComponent(id) : "";
-      var t = String(title || "").replace(/\s+/g, " ").trim();
-      // The chat that just received this message shows it as its preview (list items truncate, so
-      // compare a prefix). Compared inside the page only; nothing of it is reported.
-      var b = String(body || "").replace(/\s+/g, " ").trim().slice(0, 30);
-      var score = {}, order = [], labelled = {};
-      function add(c, s) {
-        if (!c) return;
-        if (!(c in score)) {
-          score[c] = 0;
-          order.push(c);
-        }
-        score[c] += s;
-      }
-      var els = document.querySelectorAll("*");
-      var n = Math.min(els.length, 30000);
-      for (var i = 0; i < n; i++) {
-        var el = els[i], at = el.attributes;
-        if (!at) continue;
-        var item = LIST_ROLE.test(String(el.getAttribute("role") || "")) ? convAttr(el) : "";
-        if (item && !labelled[item]) {
-          labelled[item] = true;
-          var label = labelOf(el);
-          if (t && label.length >= 2) {
-            if (label === t) add(item, 3);
-            else if (t.indexOf(label) >= 0 || label.indexOf(t) >= 0) add(item, 2);
-          }
-          if (b.length >= 3) {
-            var text = String(el.textContent || "").replace(/\s+/g, " ").slice(0, 2000);
-            if (text.indexOf(b) >= 0) add(item, 4);
-          }
-        }
+      var b = norm(body);
+      if (!b || typeof document === "undefined" || !document.querySelectorAll) return { id: "", stats: stats };
+      var items = document.querySelectorAll(LIST_SEL);
+      for (var i = 0; i < items.length && i < 3000; i++) {
+        var id = convAttr(items[i]);
         if (!id) continue;
-        for (var j = 0; j < at.length; j++) {
-          var v = at[j].value;
-          if (v && (v.indexOf(id) >= 0 || v.indexOf(enc) >= 0)) {
-            add(convNear(el), 1);
-            break;
-          }
+        stats.items++;
+        if (itemShows(items[i], b)) {
+          stats.matches++;
+          if (!found) found = id;
         }
       }
-      var best = "", bestScore = 0;
-      for (var m = 0; m < order.length; m++) {
-        if (score[order[m]] > bestScore) {
-          best = order[m];
-          bestScore = score[order[m]];
-        }
-      }
-      return best;
-    } catch (e) {
-      return "";
-    }
+    } catch (e) {}
+    return { id: found, stats: stats };
   }
 
   try {
@@ -269,20 +180,40 @@
         return null;
       }
     }
-    // later sends a notification report after ~600 ms, adding what the page shows about it then:
-    // the resolved conversation and the structure-only DOM probe. If timers fail, it sends now.
-    function later(obj) {
-      function go() {
-        try {
-          obj.domProbe = locate(obj.icon);
-          obj.conversation = conversationOf(obj.icon, obj.title, obj.body);
-        } catch (e) {}
-        send(obj);
-      }
+    // later sends a notification report once the page shows which chat it belongs to: the chat
+    // list catches up shortly after Teams raises the toast, so try at +100 ms and, failing that, at
+    // +600 ms (outside Teams' toast pipeline either way). A report still pending when the document
+    // unloads is resolved and sent right away, so a reload in that window loses nothing.
+    var pending = [];
+    function finish(p, final) {
+      if (p.sent) return;
+      var r = { id: "", stats: { items: 0, matches: 0 } };
       try {
-        setTimeout(go, 600);
+        r = conversationOf(p.obj.icon, p.obj.title, p.obj.body);
+      } catch (e) {}
+      if (!r.id && !final) return;
+      p.sent = true;
+      p.obj.conversation = r.id;
+      p.obj.resolve = "items:" + r.stats.items + ",matches:" + r.stats.matches;
+      for (var i = 0; i < pending.length; i++) if (pending[i] === p) pending.splice(i, 1);
+      send(p.obj);
+    }
+    function flush() {
+      var all = pending.slice();
+      for (var i = 0; i < all.length; i++) finish(all[i], true);
+    }
+    try {
+      g.addEventListener("pagehide", flush, true);
+      g.addEventListener("beforeunload", flush, true);
+    } catch (e) {}
+    function later(obj) {
+      var p = { obj: obj, sent: false };
+      pending.push(p);
+      try {
+        setTimeout(function () { finish(p, false); }, 100);
+        setTimeout(function () { finish(p, true); }, 600);
       } catch (e) {
-        go();
+        finish(p, true);
       }
     }
     function send(obj) {

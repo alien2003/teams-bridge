@@ -24,9 +24,11 @@ var (
 	conversationRE = regexp.MustCompile(`^(?:19:[A-Za-z0-9._~%+=\-]+@(?:thread\.v2|thread\.tacv2|thread\.skype|unq\.gbl\.spaces)|48:notes)$`)
 )
 
-// DeepLink builds an in-scope Teams URL for a notification, on the origin of teamsURL. It looks in
-// the notification tag and data for a Teams conversation id and an optional message id and, using
-// the deep-link forms documented at
+// DeepLink builds a Teams URL for a notification. The origin is the page's own (ev.Href) when that
+// is the teamsURL origin or one of config.DefaultPermissionOrigins (Teams moves accounts between
+// them), else the teamsURL origin. The conversation is an exact id from the tag or data if there
+// is one, else ev.Conversation (the hook's reading of the chat list). Using the deep-link forms
+// documented at
 // https://learn.microsoft.com/microsoftteams/platform/concepts/build-and-test/deep-link-teams,
 // returns:
 //
@@ -39,7 +41,7 @@ var (
 //
 // A channel id without a message id has no documented link that works without the team's groupId,
 // so it, like "nothing usable" or an unparsable teamsURL, yields teamsURL unchanged. The result is
-// always an http(s) URL on the teamsURL origin. A data key named messageId (any case, any depth)
+// always an http(s) URL on one of the origins above. A data key named messageId (any case, any depth)
 // wins over the first 13-digit number found. The mapping from real Teams notification data to
 // these ids must be verified against live Teams; see docs/DECISIONS.md.
 func DeepLink(teamsURL string, ev Event) string {
@@ -57,20 +59,21 @@ func DeepLink(teamsURL string, ev Event) string {
 	if len(ev.Data) > 0 {
 		hay += "\n" + string(ev.Data)
 	}
-	// The conversation the hook resolved from the page wins: Teams v2 passes no id with the
-	// notification itself (measured, docs/DECISIONS.md D17).
-	thread := ev.Conversation
-	if thread == "" {
-		thread = threadIDRE.FindString(hay)
+	// An exact id in the tag or data wins over the hook's reading of the page; Teams v2 passes none
+	// (measured, docs/DECISIONS.md D17), so in practice the resolved conversation is used. A message
+	// id is only paired with a thread from the same source.
+	thread, msg := threadIDRE.FindString(hay), ""
+	if thread != "" {
+		if msg = messageIDFromData(ev.Data); msg == "" {
+			msg = findMessageID(hay, thread)
+		}
+	} else {
+		thread = ev.Conversation
 	}
 	if thread == "" {
 		return teamsURL
 	}
 	chat := !strings.HasSuffix(thread, "@thread.tacv2") && !strings.HasSuffix(thread, "@thread.skype")
-	msg := messageIDFromData(ev.Data)
-	if msg == "" {
-		msg = findMessageID(hay, thread)
-	}
 
 	// The exact form Teams' own "Copy link" produces (work account, 2026-11): the id with ':' and '@'
 	// percent-encoded, and the chat context for chats, e.g.

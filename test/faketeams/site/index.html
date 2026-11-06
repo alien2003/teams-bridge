@@ -11,25 +11,28 @@
       <p id="status">loading…</p>
       <!-- Chat list shaped like Teams v2's (measured 2026-11-06 in a work tenant and a personal
            account, structure only): Fluent tree items whose data-fui-tree-item-value and id carry the
-           conversation id behind a prefix, labelled through aria-labelledby, with avatars that carry
-           the participant's id a few levels down. The newest chat is first. "Design team" keeps the
-           older whole-value form. -->
+           conversation id behind a prefix, labelled through aria-labelledby (1:1 chats also reference the
+           person's presence), with avatars of OTHER members in a group and the last message as the
+           preview. The newest chat is first. "Design team" keeps the older whole-value form. -->
       <div role="tree" aria-label="Chats">
-        <div role="treeitem" data-fui-tree-item-value="OneGQL_ChatListItem_19:uni01_projectx@thread.v2" id="chat-list-item_19:uni01_projectx@thread.v2" aria-labelledby="title-chat-list-item_19:uni01_projectx@thread.v2 cn-presence:8:orgid:00000000-0000-4000-8000-00000000a11c">
-          <div class="row"><div class="avatar-stack"><div class="avatar">
-            <div role="button" data-person-mri="8:orgid:00000000-0000-4000-8000-00000000a11c">
-              <img alt="" src="/api/mt/part/zz-01/beta/users/00000000-1111-4222-8333-000000000000/profilepicturev2/8:orgid:00000000-0000-4000-8000-00000000a11c?displayname=Alice" />
-            </div>
-          </div></div></div>
-          <span id="title-chat-list-item_19:uni01_projectx@thread.v2">Project X</span><span>Alice: see the doc</span>
+        <div role="treeitem" data-fui-tree-item-value="OneGQL_ChatListItem_19:uni01_projectx@thread.v2" id="chat-list-item_19:uni01_projectx@thread.v2" aria-labelledby="title-chat-list-item_19:uni01_projectx@thread.v2">
+          <div class="row"><div class="avatar-stack">
+            <div class="avatar"><div role="button" data-person-mri="8:orgid:00000000-0000-4000-8000-000000000b0b">
+              <img alt="" src="/api/mt/part/zz-01/beta/users/00000000-1111-4222-8333-000000000000/profilepicturev2/8:orgid:00000000-0000-4000-8000-000000000b0b?displayname=Bob" />
+            </div></div>
+            <div class="avatar"><div role="button" data-person-mri="8:orgid:00000000-0000-4000-8000-000000000c0c">
+              <img alt="" src="/api/mt/part/zz-01/beta/users/00000000-1111-4222-8333-000000000000/profilepicturev2/8:orgid:00000000-0000-4000-8000-000000000c0c?displayname=Carol" />
+            </div></div>
+          </div></div>
+          <span id="title-chat-list-item_19:uni01_projectx@thread.v2">Project X</span><span class="preview">Alice: see the doc</span>
         </div>
-        <div role="treeitem" data-fui-tree-item-value="OneGQL_ChatListItem_19:uni01_alice@thread.v2" id="chat-list-item_19:uni01_alice@thread.v2" aria-labelledby="title-chat-list-item_19:uni01_alice@thread.v2">
+        <div role="treeitem" data-fui-tree-item-value="OneGQL_ChatListItem_19:uni01_alice@thread.v2" id="chat-list-item_19:uni01_alice@thread.v2" aria-labelledby="title-chat-list-item_19:uni01_alice@thread.v2 cn-presence:8:orgid:00000000-0000-4000-8000-00000000a11c">
           <div class="row"><div class="avatar-stack"><div class="avatar">
             <div role="button" data-person-mri="8:orgid:00000000-0000-4000-8000-00000000a11c">
               <img alt="" src="/api/mt/part/zz-01/beta/users/00000000-1111-4222-8333-000000000000/profilepicturev2/8:orgid:00000000-0000-4000-8000-00000000a11c?displayname=Alice" />
             </div>
           </div></div></div>
-          <span id="title-chat-list-item_19:uni01_alice@thread.v2">Alice</span><span>hi</span>
+          <span id="title-chat-list-item_19:uni01_alice@thread.v2">Alice</span><span class="preview">hi</span>
         </div>
         <div role="treeitem" data-fui-tree-item-value="19:uni01_design@thread.v2" aria-labelledby="t-design">
           <span id="t-design">Design team</span><span>Dave: ok</span>

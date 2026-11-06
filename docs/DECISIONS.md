@@ -384,14 +384,15 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
     conversation id (`19:uni01_…@thread.v2`). Scanning the DOM took 3 ms (819 elements).
   * The page's WebSocket frames (Trouter) of the 30 s before the notification did **not** contain the
     sender id in plain form, so a network correlator would need more decoding for less certainty.
-* **Design.** At notification time the preload resolves the conversation by reading the page: one
-  pass collects the elements that carry the sender id (each +1 for its nearest ancestor whose
-  attribute value is a whole conversation id) and every such conversation element scored by its
-  accessible name (aria-labelledby) against the notification title (equal +3, containment +2). The
-  highest score wins; ties go to the first in the list (the most recent chat). The hook reports it as
-  `conversation`; Go validates it (whole-id regex) and `DeepLink` prefers it, giving
-  `<origin>/l/chat/<id>/conversations`. Nothing is clicked, typed or navigated; the id is not
-  logged (only its masked shape).
+* **Design (as revised after the review below).** Shortly after the notification the preload reads
+  the chat list: the **first** list item (`role` treeitem/option/listitem/row) that carries a
+  conversation id and whose last-message preview shows this notification's body (equal, or
+  `<name>: <body>`, or either side cut with an ellipsis, at least 8 characters kept) is the
+  conversation. No such item → no conversation → the link is `teams_url`. The hook reports it as
+  `conversation`; Go validates it (whole-id regex) and `DeepLink` uses it unless the notification's
+  own tag/data name a conversation, giving `<origin>/l/chat/<id>/conversations?context=…`. Nothing
+  is clicked, typed or navigated; the id is not logged (only its masked shape). The first design
+  scored the sender's avatars and the chat names against the title; it was replaced (see below).
 * **Origin.** Links are built on the origin the page actually lives on if it is the `teams_url`
   origin or one of the well-known Teams origins (teams.microsoft.com, teams.cloud.microsoft,
   teams.live.com), else on the `teams_url` origin; a foreign origin reported by the page is ignored.
@@ -399,14 +400,15 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   mark the chat read at capture time); a WebSocket/response-body correlator (measured: the sender is
   not visible in the frames; it would also keep message content in memory); CSS-class selectors
   (unstable) — the resolver keys on attribute *values* that are conversation ids, not on names.
-* The info line of a capture keeps the structure-only diagnostics (tag/icon shapes, option names,
-  page origin, the DOM probe and the resolved id's shape) so the first days on the work machine
+* The info line of a capture keeps the structure-only diagnostics (option names, page origin,
+  whether the icon names a sender, the resolver's counts `resolve=items:N,matches:M` and the
+  resolved id's shape) so the first days on the work machine
   show whether the same structure holds for work accounts, group chats and channels. Channel posts
   without a message id still fall back to `teams_url` (no documented channel link without groupId).
 * **Amended after the research workflow (2026-11-06):**
-  * The resolver runs ~600 ms after the notification (outside Teams' toast pipeline; a work
-    tenant's page can be ~20k elements, ~44 ms per scan), and the strongest signal is the chat
-    list's preview showing this message's text (+4): Teams titles a chat toast with the sender's
+  * The resolver runs after the notification, outside Teams' toast pipeline (a work tenant's page
+    can be ~20k elements, ~44 ms per scan), and the chat list's preview showing this message's text
+    is the strongest signal (it became the only one, see the review below): Teams titles a chat toast with the sender's
     name, so a group message from someone you also have a 1:1 chat with would otherwise open the
     1:1 chat. The text comparison happens inside the page; nothing of it is reported.
   * `options.timestamp` is forwarded; the daemon's 10 s dedup key now includes the resolved
@@ -429,9 +431,8 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
     the sender id is whichever path segment looks like one.
   * The chat list's `data-fui-tree-item-value` (and the item's `id`, its title span's `id`, a
     `data-tabster` JSON) carry the conversation id *behind a prefix* — in both tenants, which is why
-    whole-value matching found nothing. The resolver extracts the id from the value and scores only
-    chat-list items (`role` treeitem/option/listitem/row); the sender's avatars sit 4–6 levels
-    below their item. The open conversation's id appears elsewhere (`data-track-thread-id`), outside
+    whole-value matching found nothing. The resolver extracts the id from the value and considers only
+    chat-list items (`role` treeitem/option/listitem/row). The open conversation's id appears elsewhere (`data-track-thread-id`), outside
     the list, and is ignored for scoring.
   * The **Activity** view has no conversation ids in its list: the resolver needs Teams' **Chat**
     view. Teams reopens the last used view, so the setup instructions say to open Chat in the
@@ -443,6 +444,30 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
     build channel links yet (taps on channel notifications open Teams).
   * Result on the personal account: the tap opens the right 1:1 chat, in the work and in the
     personal Android profile.
+* **Revised after an independent review (2026-11-06).** The review reproduced, in Edge, wrong
+  chats from the scored design: a group message from someone you also have a 1:1 chat with opened
+  the 1:1 chat when the group's avatar shows other members (it usually does) or a short text such
+  as "ok" did not reach the preview score; an unnamed group whose name lists the sender won over the
+  group the message was posted in; a channel post (no chat-list item at all) opened some chat with
+  the sender. A wrong chat is worse than Teams' start page, so:
+  * Only the preview is evidence. Avatars, presence and chat names no longer pick a chat; without a
+    preview match the link is `teams_url`.
+  * Ties go to the first item in list order: the newest chat is on top, and a chat that just
+    received a message moves up.
+  * Two attempts, at +100 ms and +600 ms: the first catches a burst before the next message
+    replaces the preview, the second gives a slow list time to update. A notification still pending
+    when the page unloads (`pagehide`/`beforeunload`) is reported at once, so a reload never loses
+    it.
+  * The notification's own tag/data ids win over the page's (exact beats inferred); a message id
+    is paired only with a thread from the same tag/data.
+  * Dedup: the same text from both capture paths (page and service worker) within 3 s is one
+    message; otherwise the key is text + conversation + timestamp, so the same short text in two
+    chats is two messages.
+  * `hook.Shape` replaces GUIDs and long ids by `<guid>`/`<id>` before masking, so a logged shape
+    cannot fingerprint an id. The avatar/tag shapes and the DOM probe left the info line.
+  * `test/faketeams/resolver_test.go` replays the review's scenarios (synthetic markup in the
+    measured shape) against the real preload in Edge, plus a burst and a reload right after a
+    notification.
 * **No tenant data in the repository.** Real tenant/team/channel/conversation ids and names the user
   shared for format analysis are never written to code, tests, docs or commits (tests use
   synthetic ids of the same shape); `mise run secrets-check` also fails on any entry of a local,

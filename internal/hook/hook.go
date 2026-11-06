@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -60,7 +61,9 @@ type Event struct {
 	DataDropped bool            // true when options.data was present but too large or not serialisable
 	Count       int             // unread count for a "title" event
 	OptionKeys  []string        // names (not values) of the notification options the page passed
-	DOMProbe    []string        // structure-only description of where the sender appears in the page
+	// Resolve is the resolver's structure-only diagnostics ("items:<n>,matches:<n>": chat-list
+	// items seen, items whose preview showed this notification); "" if absent.
+	Resolve string
 	// Conversation is the conversation id the hook resolved from the page (chat list) for this
 	// notification; validated, "" if none.
 	Conversation string
@@ -87,8 +90,8 @@ type wire struct {
 	DataError json.RawMessage `json:"dataError"`
 	// OptionKeys: names of the options object (lenient: anything but short strings is ignored).
 	OptionKeys json.RawMessage `json:"optionKeys"`
-	// DOMProbe: the preload's structure-only findings (masked shapes, tag and attribute names).
-	DOMProbe json.RawMessage `json:"domProbe"`
+	// Resolve: the resolver's counts, "items:<n>,matches:<n>".
+	Resolve *string `json:"resolve"`
 	// Conversation: the conversation id the hook found in the page for this notification.
 	Conversation *string `json:"conversation"`
 	// Timestamp: options.timestamp; lenient (anything but a plausible number is ignored).
@@ -144,7 +147,9 @@ func Parse(payload string) (Event, error) {
 	}
 
 	ev.OptionKeys = optionKeys(w.OptionKeys)
-	ev.DOMProbe = probeStrings(w.DOMProbe)
+	if r := clean(w.Resolve); resolveRE.MatchString(r) {
+		ev.Resolve = r
+	}
 	if c := clean(w.Conversation); len(c) <= 300 && conversationRE.MatchString(c) {
 		ev.Conversation = c
 	}
@@ -273,17 +278,35 @@ func optionKeys(raw json.RawMessage) []string {
 	return out
 }
 
-// Shape masks s for structure-only logging: letters become 'a', digits '9', whitespace ' ', and
-// ASCII punctuation is kept, so "19:abc@thread.v2" shows as "99:aaa@aaaaaa.a9" without revealing
-// ids, names or text. Longer than max runes, the rest is summarised as "…(+N)".
+// Shape masks s for structure-only logging. Ids are replaced by tokens first — GUIDs by <guid>,
+// runs of 16+ letters/digits/_/- by <id> — because a per-character mask of an id keeps its
+// letter/digit pattern (~1 bit per character, a fingerprint). Then letters become 'a', digits '9',
+// whitespace ' ', and ASCII punctuation is kept, so "19:uni01_<id>@thread.v2" shows as
+// "99:aaa99_<id>@aaaaaa.a9". Longer than max runes, the rest is summarised as "…(+N)".
 func Shape(s string, max int) string {
+	s = strings.Map(func(r rune) rune {
+		if r == 0 || r == 1 { // reserved for the id tokens below; page data must not forge them
+			return -1
+		}
+		return r
+	}, s)
+	s = guidRE.ReplaceAllString(s, "\x00guid\x01")
+	s = longIDRE.ReplaceAllString(s, "\x00id\x01")
 	var b strings.Builder
-	n := 0
+	n, inTok := 0, false
 	for _, r := range s {
 		if n == max {
 			return b.String() + fmt.Sprintf("…(+%d)", utf8.RuneCountInString(s)-max)
 		}
 		switch {
+		case r == 0:
+			b.WriteByte('<')
+			inTok = true
+		case r == 1:
+			b.WriteByte('>')
+			inTok = false
+		case inTok:
+			b.WriteRune(r)
 		case unicode.IsLetter(r):
 			b.WriteByte('a')
 		case unicode.IsDigit(r):
@@ -299,3 +322,9 @@ func Shape(s string, max int) string {
 	}
 	return b.String()
 }
+
+var (
+	guidRE    = regexp.MustCompile(`(?i)[0-9a-f]{8}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{4}-?[0-9a-f]{12}`)
+	longIDRE  = regexp.MustCompile(`[A-Za-z0-9_-]{16,}`)
+	resolveRE = regexp.MustCompile(`^items:\d{1,5},matches:\d{1,5}$`)
+)

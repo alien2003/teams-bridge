@@ -26,15 +26,30 @@ for p in "${patterns[@]}"; do
   if [[ -n "$out" ]]; then echo "$out"; hits=1; fi
 done
 # A local, git-ignored stop list of strings that must never enter the repository (real tenant,
-# team, channel and conversation ids and names). One string per line; never committed.
-denylist="$PWD/.local/denylist.txt"
+# team, channel and conversation ids and names). One string per line; never committed or printed.
+# It lives in the MAIN checkout's .local/ (found from any worktree); a missing list is a failure
+# unless TBD_NO_DENYLIST=1 says so explicitly (CI, fresh clones).
+common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "$PWD/.git")"
+denylist="${TBD_DENYLIST:-$(dirname "$common")/.local/denylist.txt}"
 if [[ -s "$denylist" ]]; then
+  tmpd="${TMPDIR:-$(dirname "$common")/.tmp}"; mkdir -p "$tmpd"
+  pat="$(mktemp "$tmpd/denylist.XXXXXX")"
+  trap 'rm -f "$pat"' EXIT
+  # each entry, plus GUID-shaped entries without their dashes
+  { command grep -v '^[[:space:]]*$' "$denylist"
+    command grep -E '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$' "$denylist" | tr -d '-'
+  } > "$pat"
   set +e
-  hit="$(command grep -lIF -f "$denylist" -- "${files[@]}")"; rc=$?
+  hit="$(command grep -lIiF -f "$pat" -- "${files[@]}")"; rc=$?
   set -e
   (( rc > 1 )) && { echo "secrets-check: grep failed on the stop list"; exit 2; }
-  if [[ -n "$hit" ]]; then echo "secrets-check: stop-list value found in:"; printf '  %s\n' $hit; hits=1; fi
+  if [[ -n "$hit" ]]; then echo "secrets-check: stop-list value found in:"; printf '%s\n' "$hit" | sed 's/^/  /'; hits=1; fi
   echo "secrets-check: stop list checked ($(command grep -c . "$denylist") entries)"
+elif [[ "${TBD_NO_DENYLIST:-}" == 1 ]]; then
+  echo "secrets-check: no stop list (TBD_NO_DENYLIST=1)"
+else
+  echo "secrets-check: FAIL — stop list $denylist missing or empty (set TBD_NO_DENYLIST=1 to run without it)"
+  exit 1
 fi
 # Files that must never be committed, whatever their content.
 for f in "${files[@]}"; do

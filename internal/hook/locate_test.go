@@ -52,8 +52,8 @@ func TestDeepLinkUsesResolvedConversationAndPageOrigin(t *testing.T) {
 			"https://teams.live.com/l/chat/19%3Auni01_abc%40thread.v2/conversations?context=%7B%22contextType%22%3A%22chat%22%7D"},
 		{"foreign page origin is ignored", Event{Conversation: "19:uni01_abc@thread.v2", Href: "https://evil.example/v2/"},
 			"https://teams.microsoft.com/l/chat/19%3Auni01_abc%40thread.v2/conversations?context=%7B%22contextType%22%3A%22chat%22%7D"},
-		{"resolved conversation beats the tag", Event{Conversation: "19:uni01_abc@thread.v2", Tag: "19:other@thread.v2"},
-			"https://teams.microsoft.com/l/chat/19%3Auni01_abc%40thread.v2/conversations?context=%7B%22contextType%22%3A%22chat%22%7D"},
+		{"an exact id in the tag beats the resolved conversation", Event{Conversation: "19:uni01_abc@thread.v2", Tag: "19:other@thread.v2"},
+			"https://teams.microsoft.com/l/chat/19%3Aother%40thread.v2/conversations?context=%7B%22contextType%22%3A%22chat%22%7D"},
 		{"nothing resolved: teams_url", Event{Href: "https://teams.live.com/v2/"}, teamsURL},
 	}
 	for _, tc := range cases {
@@ -73,6 +73,19 @@ func TestDeepLinkMatchesTeamsCopyLink(t *testing.T) {
 		got := DeepLink("https://teams.microsoft.com/v2/", Event{Conversation: conv, Href: "https://teams.cloud.microsoft/v2/"})
 		if got != want {
 			t.Errorf("DeepLink(%s)\n got %s\nwant %s", conv, got, want)
+		}
+	}
+}
+
+func TestShapeHasNoIDFingerprint(t *testing.T) {
+	for in, want := range map[string]string{
+		"19:uni01_a1b2c3d4e5f6a7b8c9d0e1f2@thread.v2":                                                 "99:<id>@aaaaaa.a9",
+		"19:00000000-1111-4222-8333-444444444444_55555555-6666-4777-8888-999999999999@unq.gbl.spaces": "99:<guid>_<guid>@aaa.aaa.aaaaaa",
+		"8:orgid:9A9A9A9A-0000-4000-8000-0000000000A1":                                                "9:aaaaa:<guid>",
+		"x\x00guid\x01y": "aaaaaa",
+	} {
+		if got := Shape(in, 120); got != want {
+			t.Errorf("Shape(%q) = %q, want %q", in, got, want)
 		}
 	}
 }
