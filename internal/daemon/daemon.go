@@ -480,7 +480,7 @@ func (d *daemon) runBrowser(ctx context.Context, started func()) error {
 	}
 	probe := time.NewTimer(first)
 	defer probe.Stop()
-	surveyed := false
+	lastSurvey := ""
 	for {
 		select {
 		case <-ctx.Done():
@@ -503,9 +503,8 @@ func (d *daemon) runBrowser(ctx context.Context, started func()) error {
 			ok := act == session.ProbeOK
 			d.state.update(func(s *State) { s.SessionOK = ok })
 			d.log.Debug("probe", "action", act.String(), "why", r.Why, "err", perr)
-			if act == session.ProbeOK && !surveyed { // once per browser session, structure only
-				surveyed = true
-				d.surveyChatList(ctx, sess)
+			if act == session.ProbeOK { // structure only; logged when the chat list's shape changes
+				lastSurvey = d.surveyChatList(ctx, sess, lastSurvey)
 			}
 			if act == session.ProbeRestart {
 				d.det.BrowserLost(session.ErrUnresponsive)
@@ -560,17 +559,22 @@ func originOf(raw string) string {
 	return u.Scheme + "://" + u.Host
 }
 
-// surveyChatList logs, structure only, what the conversation resolver would find on this page:
+// surveyChatList logs (when it changed since last), structure only, what the conversation resolver
+// would find on this page:
 // how many chat-list elements hold a conversation id, under which attributes, with which labels and
 // avatars (hook.SurveyJS). It needs no notification, so it shows on a new tenant right away whether
 // taps will open the right chat.
-func (d *daemon) surveyChatList(ctx context.Context, sess *browser.Session) {
+func (d *daemon) surveyChatList(ctx context.Context, sess *browser.Session, last string) string {
 	var sv hook.Survey
 	sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := sess.Evaluate(sctx, hook.SurveyJS, &sv); err != nil {
 		d.log.Warn("chat list survey failed", "err", err)
-		return
+		return last
+	}
+	key := fmt.Sprintf("%d|%s|%s|%d|%d|%d", sv.Items, hook.Counts(sv.Attrs), hook.Counts(sv.Kinds), sv.Labelled, sv.AvatarMRI, sv.AvatarImg)
+	if key == last {
+		return last
 	}
 	samples := sv.Samples
 	if len(samples) > 3 {
@@ -582,4 +586,5 @@ func (d *daemon) surveyChatList(ctx context.Context, sess *browser.Session) {
 	d.log.Info("chat list survey", "conversation_items", sv.Items, "attrs", hook.Counts(sv.Attrs),
 		"kinds", hook.Counts(sv.Kinds), "labelled", sv.Labelled, "avatar_mri", sv.AvatarMRI, "avatar_img", sv.AvatarImg,
 		"samples", strings.Join(samples, " "), "elements", sv.Elements, "ms", sv.MS, "path", hook.Shape(sv.Path, 40), "error", sv.Error)
+	return key
 }
