@@ -423,3 +423,27 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
     links and channel ids; the measurement here cannot rule it in or out (it only looked at the
     page's own sockets, without decoding). Deferred: the DOM resolver covers chats; revisit if the
     work tenant shows gaps (channels, threads).
+* **Second round of measurements (2026-11-06), work tenant (`teams.cloud.microsoft`, via console
+  snippets the user ran in a browser — structure only) and the personal account:**
+  * The avatar URL of a work account is `…/api/mt/part/<region>/beta/users/<tenant GUID>/profilepicturev2/8:orgid:<GUID>`;
+    the sender id is whichever path segment looks like one.
+  * The chat list's `data-fui-tree-item-value` (and the item's `id`, its title span's `id`, a
+    `data-tabster` JSON) carry the conversation id *behind a prefix* — in both tenants, which is why
+    whole-value matching found nothing. The resolver extracts the id from the value and scores only
+    chat-list items (`role` treeitem/option/listitem/row); the sender's avatars sit 4–6 levels
+    below their item. The open conversation's id appears elsewhere (`data-track-thread-id`), outside
+    the list, and is ignored for scoring.
+  * The **Activity** view has no conversation ids in its list: the resolver needs Teams' **Chat**
+    view. Teams reopens the last used view, so the setup instructions say to open Chat in the
+    `tbd login` window before closing it; the daemon's structure-only `chat list survey` line
+    (logged when it changes, at every healthy probe) shows `conversation_items=0` otherwise.
+  * Links have exactly the form of Teams' own "Copy link" (`/l/chat/<id %-encoded>/conversations?context=…`);
+    opening one on the phone opened the chat (user check). Channel messages carry `tenantId`,
+    `groupId`, `parentMessageId`, `teamName`, `channelName` in Teams' own links; tbd does not
+    build channel links yet (taps on channel notifications open Teams).
+  * Result on the personal account: the tap opens the right 1:1 chat, in the work and in the
+    personal Android profile.
+* **No tenant data in the repository.** Real tenant/team/channel/conversation ids and names the user
+  shared for format analysis are never written to code, tests, docs or commits (tests use
+  synthetic ids of the same shape); `mise run secrets-check` also fails on any entry of a local,
+  git-ignored stop list (`.local/denylist.txt`).

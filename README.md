@@ -52,7 +52,7 @@ Put the binary on your `PATH` (Linux: `install -m755 dist/tbd ~/.local/bin/tbd`;
 repository: inside the checkout, mise sets `TBD_HOME` to the development data dir `.local/tbd`.
 
 ```sh
-tbd login      # a browser window opens with the daemon's own profile: sign in to Teams, close it
+tbd login      # a browser window opens with the daemon's own profile: sign in, open Chat, close it
 tbd pair       # prints a QR code and the 26-character code, then sends pairing pings
 ```
 
@@ -105,6 +105,10 @@ Edge keeps some per-user bookkeeping in the registry no matter which profile it 
   but battery savers and Doze may still delay them. Exempt Teams Bridge from battery optimisation.
 * **Tap opens a browser tab instead of the PWA.** Only Chrome and Edge install a real WebAPK, which
   Android can route links to. Vivaldi, Firefox, Brave and others open a tab instead.
+* **A tap opens Teams but not the chat.** Teams' notifications carry no chat id; tbd finds the chat
+  in Teams' chat list, which exists only in the **Chat** view. Run `tbd login`, open Chat, close the
+  window, restart the daemon. The log line `chat list survey` (no names or text in it) should show
+  `conversation_items` above 0. Channel posts open Teams for now.
 * **Nothing arrives.** `tbd status` shows whether notifications are being captured; `tbd run
   --log-level debug` logs their raw structure (including text — debug only). `tbd test-push` checks
   the FCM path on its own.
