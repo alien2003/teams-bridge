@@ -354,3 +354,7 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
 * **`mise run test` vs `mise run test-win`** stay separate tasks (BRIEF §9 lists both): test-win needs
   the Windows host, takes minutes and flashes a login window; both must be green.
 * The `MISE_*_DIR` pins of D2 had not actually landed in `mise.toml`; they are there now.
+* **Windows executables inside `while read` loops** read the loop's stdin (WSL interop forwards it)
+  and end the loop early — found three times (test-win, clean-outside, clean-edge-registry). Every
+  `.exe` started in a loop now gets `< /dev/null`; the clean-up is verified by comparing value lists,
+  not by another loop.
