@@ -1,0 +1,180 @@
+package config
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// Browser is a detected browser executable.
+type Browser struct {
+	Path   string
+	Source string // "config", "TBD_BROWSER", "windows-standard", "PATH", "repo .tools (dev)"
+}
+
+// ErrNoBrowser means detection found nothing.
+var ErrNoBrowser = errors.New("no Edge/Chromium found: install Microsoft Edge or Chromium, or set `browser` in config.toml")
+
+type env struct {
+	getenv   func(string) string
+	lookPath func(string) (string, error)
+	exists   func(string) bool
+	goos     string
+	starts   []string // directories to search upwards for .tools/edge (cwd, executable dir)
+}
+
+func defaultEnv() env {
+	var starts []string
+	if wd, err := os.Getwd(); err == nil {
+		starts = append(starts, wd)
+	}
+	if exe, err := os.Executable(); err == nil {
+		starts = append(starts, filepath.Dir(exe))
+	}
+	return env{
+		getenv:   os.Getenv,
+		lookPath: exec.LookPath,
+		exists: func(p string) bool {
+			st, err := os.Stat(p)
+			return err == nil && !st.IsDir()
+		},
+		goos:   runtime.GOOS,
+		starts: starts,
+	}
+}
+
+// LinuxCandidates are looked up on PATH, in order.
+var LinuxCandidates = []string{"microsoft-edge", "microsoft-edge-stable", "chromium", "chromium-browser", "google-chrome"}
+
+// DevBrowserRel is the dev-only browser wrapper, relative to the repository root (BRIEF §1.4).
+var DevBrowserRel = filepath.Join(".tools", "edge", "tbd-edge")
+
+// DetectBrowser finds the browser: config → $TBD_BROWSER → Windows standard msedge.exe paths →
+// Linux candidates on PATH → .tools/edge in the repository (dev only).
+func (c *Config) DetectBrowser() (Browser, error) { return c.detectBrowser(defaultEnv()) }
+
+func (c *Config) detectBrowser(e env) (Browser, error) {
+	if c.Browser != "" {
+		if !e.exists(c.Browser) {
+			return Browser{}, fmt.Errorf("config: browser %q does not exist", c.Browser)
+		}
+		return Browser{Path: c.Browser, Source: "config"}, nil
+	}
+	if v := e.getenv("TBD_BROWSER"); v != "" {
+		if !e.exists(v) {
+			return Browser{}, fmt.Errorf("TBD_BROWSER=%q does not exist", v)
+		}
+		return Browser{Path: v, Source: "TBD_BROWSER"}, nil
+	}
+	if e.goos == "windows" {
+		for _, base := range []string{e.getenv("ProgramFiles(x86)"), e.getenv("ProgramFiles"), e.getenv("LOCALAPPDATA")} {
+			if base == "" {
+				continue
+			}
+			p := filepath.Join(base, "Microsoft", "Edge", "Application", "msedge.exe")
+			if e.exists(p) {
+				return Browser{Path: p, Source: "windows-standard"}, nil
+			}
+		}
+	} else {
+		for _, name := range LinuxCandidates {
+			if p, err := e.lookPath(name); err == nil {
+				return Browser{Path: p, Source: "PATH"}, nil
+			}
+		}
+	}
+	for _, start := range e.starts {
+		for d := start; ; {
+			p := filepath.Join(d, DevBrowserRel)
+			if e.exists(p) {
+				return Browser{Path: p, Source: "repo .tools (dev)"}, nil
+			}
+			parent := filepath.Dir(d)
+			if parent == d {
+				break
+			}
+			d = parent
+		}
+	}
+	return Browser{}, ErrNoBrowser
+}
+
+var versionRE = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)\.(\d+)`)
+
+// Version is a browser version.
+type Version struct {
+	Full  string // e.g. 157.0.4341.42
+	Major int
+}
+
+// ParseVersion extracts the first a.b.c.d version from s.
+func ParseVersion(s string) (Version, bool) {
+	m := versionRE.FindStringSubmatch(s)
+	if m == nil {
+		return Version{}, false
+	}
+	major, err := strconv.Atoi(m[1])
+	if err != nil || major == 0 {
+		return Version{}, false
+	}
+	return Version{Full: m[0], Major: major}, true
+}
+
+// BrowserVersion reads the version of the browser at path without starting a browser window:
+// `--version` on Linux/macOS; on Windows (where msedge.exe --version opens a window instead of
+// printing) the version-named directory next to the executable.
+func BrowserVersion(ctx context.Context, path string) (Version, error) {
+	if runtime.GOOS == "windows" {
+		return versionFromDir(filepath.Dir(path))
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	if err != nil {
+		return Version{}, fmt.Errorf("%s --version: %w", path, err)
+	}
+	v, ok := ParseVersion(string(out))
+	if !ok {
+		return Version{}, fmt.Errorf("%s --version: no version in %q", path, strings.TrimSpace(string(out)))
+	}
+	return v, nil
+}
+
+func versionFromDir(dir string) (Version, error) {
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		return Version{}, err
+	}
+	var vs []Version
+	for _, e := range ents {
+		if v, ok := ParseVersion(e.Name()); ok && e.IsDir() && v.Full == e.Name() {
+			vs = append(vs, v)
+		}
+	}
+	if len(vs) == 0 {
+		return Version{}, fmt.Errorf("no version directory next to the browser in %s", dir)
+	}
+	sort.Slice(vs, func(i, j int) bool { return versionLess(vs[i].Full, vs[j].Full) })
+	return vs[len(vs)-1], nil
+}
+
+func versionLess(a, b string) bool {
+	pa, pb := strings.Split(a, "."), strings.Split(b, ".")
+	for i := range pa {
+		x, _ := strconv.Atoi(pa[i])
+		y, _ := strconv.Atoi(pb[i])
+		if x != y {
+			return x < y
+		}
+	}
+	return false
+}
