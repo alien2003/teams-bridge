@@ -356,7 +356,8 @@ func (d *daemon) runBrowser(ctx context.Context, started func()) error {
 	}
 	ua := browser.EffectiveUserAgent(d.cfg.UserAgent, ver.Major)
 	proc, err := browser.Launch(ctx, browser.LaunchOptions{
-		Path: b.Path, Home: d.o.Home, Headless: true, UserAgent: ua, ExtraArgs: d.cfg.BrowserArgs, Logger: d.log,
+		Path: b.Path, Home: d.o.Home, Headless: true, UserAgent: ua, ExtraArgs: d.cfg.BrowserArgs,
+		ImplicitSignin: d.cfg.ImplicitSignin, Logger: d.log,
 	})
 	if err != nil {
 		return fmt.Errorf("launch: %w", err)
@@ -467,7 +468,8 @@ func Login(ctx context.Context, o Options) error {
 	}
 	return browser.Login(ctx, browser.LoginOptions{
 		Path: b.Path, Home: o.Home, TeamsURL: o.Config.TeamsURL, LoginHosts: o.Config.LoginHosts,
-		ExtraArgs: o.Config.BrowserArgs, UserAgent: browser.EffectiveUserAgent(o.Config.UserAgent, ver.Major),
-		Logger: o.Logger,
+		ExtraArgs: o.Config.BrowserArgs, ImplicitSignin: o.Config.ImplicitSignin,
+		UserAgent: browser.EffectiveUserAgent(o.Config.UserAgent, ver.Major),
+		Logger:    o.Logger,
 	})
 }

@@ -42,11 +42,15 @@ type LaunchOptions struct {
 	// per-target CDP override cannot reach a service worker's main-script fetch, nor the worker's
 	// first requests before it is hooked, which would otherwise carry the real (headless, and on
 	// Linux X11) user agent. Empty means no switch.
-	UserAgent    string
-	ExtraArgs    []string      // extra switches (config browser_args), appended last
-	Env          []string      // environment; nil means os.Environ()
-	Logger       *slog.Logger  // nil means slog.Default()
-	StartTimeout time.Duration // 0 means DefaultStartTimeout
+	UserAgent string
+	ExtraArgs []string // extra switches (config browser_args), appended last
+	// ImplicitSignin keeps Edge's implicit sign-in of a new profile with the Windows account. Off by
+	// default (msImplicitSignin is disabled): the daemon's profile should not be signed in to the
+	// user's Microsoft account, open a sync-consent page, or touch OneAuth/WAM (measured, D14).
+	ImplicitSignin bool
+	Env            []string      // environment; nil means os.Environ()
+	Logger         *slog.Logger  // nil means slog.Default()
+	StartTimeout   time.Duration // 0 means DefaultStartTimeout
 }
 
 // Process is a running browser.
@@ -66,8 +70,36 @@ type Process struct {
 	noSandbox bool // stderr said Chromium's sandbox is unusable
 }
 
-// ProfileDir is the persistent profile directory inside home.
+// ProfileDir is the persistent profile directory (Chromium's user data dir) inside home.
 func ProfileDir(home string) string { return filepath.Join(home, "profile") }
+
+// ProfileName is the profile inside ProfileDir (--profile-directory), instead of "Default".
+const ProfileName = "tbd"
+
+// DisabledEdgeFeatures are switched off unless LaunchOptions.ImplicitSignin (unknown feature names
+// are ignored by Chromium and other browsers).
+var DisabledEdgeFeatures = []string{"msImplicitSignin"}
+
+// mergeDisableFeatures appends extra, folding our features into the user's own --disable-features
+// switch if there is one: Chromium honours only the last occurrence of a switch.
+func mergeDisableFeatures(extra, ours []string) []string {
+	if len(ours) == 0 {
+		return extra
+	}
+	const sw = "--disable-features="
+	out := append([]string(nil), extra...)
+	for i := len(out) - 1; i >= 0; i-- {
+		if strings.HasPrefix(out[i], sw) {
+			if v := strings.TrimPrefix(out[i], sw); v != "" {
+				out[i] = sw + v + "," + strings.Join(ours, ",")
+			} else {
+				out[i] = sw + strings.Join(ours, ",")
+			}
+			return out
+		}
+	}
+	return append([]string{sw + strings.Join(ours, ",")}, out...)
+}
 
 // CrashesDir is the crash-dump directory inside home.
 func CrashesDir(home string) string { return filepath.Join(home, "crashes") }
@@ -103,6 +135,11 @@ func Launch(ctx context.Context, o LaunchOptions) (*Process, error) {
 	args := []string{
 		"--remote-debugging-port=0",
 		"--user-data-dir=" + profile,
+		// A profile name of our own: on Windows, Edge mirrors each profile's preference MACs into
+		// HKCU\Software\Microsoft\Edge\PreferenceMACs\<profile name>, whatever --user-data-dir says;
+		// with the default name "Default" it overwrote the user's own Edge profile's entries
+		// (measured, docs/DECISIONS.md D14).
+		"--profile-directory=" + ProfileName,
 		"--no-first-run",
 		"--no-default-browser-check",
 		"--disable-crash-reporter",
@@ -117,7 +154,11 @@ func Launch(ctx context.Context, o LaunchOptions) (*Process, error) {
 	// Chromium's sandbox stays on everywhere: the browser holds a production Teams session. Where
 	// it cannot work (containers without user namespaces), add --no-sandbox via browser_args.
 	args = append(args, platformLaunchArgs(o.Headless)...)
-	args = append(args, o.ExtraArgs...)
+	var disable []string
+	if !o.ImplicitSignin {
+		disable = append(disable, DisabledEdgeFeatures...)
+	}
+	args = append(args, mergeDisableFeatures(o.ExtraArgs, disable)...)
 	args = append(args, "about:blank")
 
 	cmd := exec.Command(o.Path, args...)

@@ -64,6 +64,10 @@ type Config struct {
 	// ReportHidden makes the page believe it is in the background (document.hidden, hasFocus),
 	// which is what makes Teams raise notifications. Default true.
 	ReportHidden *bool `toml:"report_hidden,omitempty"`
+	// ImplicitSignin lets Edge sign the daemon's new profile in to the Windows account (off by
+	// default). Turn it on only where Conditional Access needs Edge's OS-account SSO (an
+	// Entra-joined Windows PC).
+	ImplicitSignin bool `toml:"implicit_signin,omitempty"`
 	// FCMEndpoint overrides https://fcm.googleapis.com (tests).
 	FCMEndpoint string `toml:"fcm_endpoint,omitempty"`
 }

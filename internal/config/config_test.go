@@ -11,20 +11,29 @@ import (
 	"github.com/alien2003/teams-bridge/internal/proto"
 )
 
+// root is an absolute path prefix on the host OS ("/" or `C:\`), so the table works on both.
+func root(parts ...string) string {
+	r := string(filepath.Separator)
+	if runtime.GOOS == "windows" {
+		r = `C:\`
+	}
+	return filepath.Join(append([]string{r}, parts...)...)
+}
+
 func TestResolveHome(t *testing.T) {
 	env := func(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
-	home := func() (string, error) { return "/home/u", nil }
-	abs := func(p string) string { a, _ := filepath.Abs(p); return a }
+	home := func() (string, error) { return root("home", "u"), nil }
 	cases := []struct {
 		name, flag, goos string
 		env              map[string]string
 		want             string
 	}{
-		{"flag wins", "/x/flag", "linux", map[string]string{"TBD_HOME": "/x/env"}, abs("/x/flag")},
-		{"env", "", "linux", map[string]string{"TBD_HOME": "/x/env"}, abs("/x/env")},
-		{"linux default", "", "linux", nil, filepath.Join("/home/u", ".local", "share", "tbd")},
-		{"xdg", "", "linux", map[string]string{"XDG_DATA_HOME": "/xdg"}, filepath.Join("/xdg", "tbd")},
-		{"windows", "", "windows", map[string]string{"LOCALAPPDATA": `C:\Users\u\AppData\Local`}, filepath.Join(`C:\Users\u\AppData\Local`, "tbd")},
+		{"flag wins", root("x", "flag"), "linux", map[string]string{"TBD_HOME": root("x", "env")}, root("x", "flag")},
+		{"env", "", "linux", map[string]string{"TBD_HOME": root("x", "env")}, root("x", "env")},
+		{"linux default", "", "linux", nil, root("home", "u", ".local", "share", "tbd")},
+		{"xdg", "", "linux", map[string]string{"XDG_DATA_HOME": root("xdg")}, root("xdg", "tbd")},
+		{"relative xdg is ignored", "", "linux", map[string]string{"XDG_DATA_HOME": "rel"}, root("home", "u", ".local", "share", "tbd")},
+		{"windows", "", "windows", map[string]string{"LOCALAPPDATA": root("Users", "u", "AppData", "Local")}, root("Users", "u", "AppData", "Local", "tbd")},
 	}
 	for _, tc := range cases {
 		got, err := resolveHome(tc.flag, env(tc.env), tc.goos, home)
@@ -115,10 +124,10 @@ func TestDetectBrowserOrder(t *testing.T) {
 	files := map[string]bool{}
 	e := env{
 		getenv: func(k string) string {
-			return map[string]string{"TBD_BROWSER": "/env/edge", "ProgramFiles(x86)": `C:\PF86`, "LOCALAPPDATA": `C:\LAD`}[k]
+			return map[string]string{"TBD_BROWSER": root("env", "edge")}[k]
 		},
 		lookPath: func(n string) (string, error) {
-			p := "/usr/bin/" + n
+			p := root("usr", "bin", n)
 			if files[p] {
 				return p, nil
 			}
@@ -126,7 +135,7 @@ func TestDetectBrowserOrder(t *testing.T) {
 		},
 		exists: func(p string) bool { return files[p] },
 		goos:   "linux",
-		starts: []string{"/repo/internal/x"},
+		starts: []string{root("repo", "internal", "x")},
 	}
 	c := Default()
 	check := func(want, src string) {
@@ -142,20 +151,20 @@ func TestDetectBrowserOrder(t *testing.T) {
 			t.Fatalf("got %+v %v, want %s (%s)", b, err, want, src)
 		}
 	}
-	files["/repo/.tools/edge/tbd-edge"] = true
+	files[root("repo", DevBrowserRel)] = true
 	e.getenv = func(string) string { return "" }
-	check(filepath.Join("/repo", DevBrowserRel), "repo .tools (dev)")
-	files["/usr/bin/chromium"] = true
-	check("/usr/bin/chromium", "PATH")
-	files["/usr/bin/microsoft-edge"] = true
-	check("/usr/bin/microsoft-edge", "PATH")
-	files["/env/edge"] = true
-	e.getenv = func(k string) string { return map[string]string{"TBD_BROWSER": "/env/edge"}[k] }
-	check("/env/edge", "TBD_BROWSER")
-	files["/cfg/edge"] = true
-	c.Browser = "/cfg/edge"
-	check("/cfg/edge", "config")
-	c.Browser = "/missing"
+	check(root("repo", DevBrowserRel), "repo .tools (dev)")
+	files[root("usr", "bin", "chromium")] = true
+	check(root("usr", "bin", "chromium"), "PATH")
+	files[root("usr", "bin", "microsoft-edge")] = true
+	check(root("usr", "bin", "microsoft-edge"), "PATH")
+	files[root("env", "edge")] = true
+	e.getenv = func(k string) string { return map[string]string{"TBD_BROWSER": root("env", "edge")}[k] }
+	check(root("env", "edge"), "TBD_BROWSER")
+	files[root("cfg", "edge")] = true
+	c.Browser = root("cfg", "edge")
+	check(root("cfg", "edge"), "config")
+	c.Browser = root("missing")
 	if _, err := c.detectBrowser(e); err == nil {
 		t.Fatal("missing configured browser must fail")
 	}

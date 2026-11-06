@@ -31,6 +31,8 @@ type LoginOptions struct {
 	TeamsURL   string
 	LoginHosts []string
 	ExtraArgs  []string
+	// ImplicitSignin: see LaunchOptions.ImplicitSignin.
+	ImplicitSignin bool
 	// UserAgent, if set, is passed as --user-agent, so the interactive sign-in presents the same
 	// user agent as the daemon will (Conditional Access evaluates the device platform at sign-in).
 	UserAgent string
@@ -63,7 +65,7 @@ func Login(ctx context.Context, o LoginOptions) error {
 	}
 
 	proc, err := Launch(ctx, LaunchOptions{
-		Path: o.Path, Home: o.Home, Headless: o.headless, UserAgent: o.UserAgent, ExtraArgs: o.ExtraArgs, Logger: log,
+		Path: o.Path, Home: o.Home, Headless: o.headless, UserAgent: o.UserAgent, ExtraArgs: o.ExtraArgs, ImplicitSignin: o.ImplicitSignin, Logger: log,
 	})
 	if err != nil {
 		return err

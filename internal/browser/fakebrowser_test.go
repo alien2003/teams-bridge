@@ -65,6 +65,7 @@ sleep 1 & wait`)
 	want := []string{
 		"--remote-debugging-port=0",
 		"--user-data-dir=" + ProfileDir(home),
+		"--profile-directory=tbd",
 		"--no-first-run",
 		"--no-default-browser-check",
 		"--disable-crash-reporter",
@@ -72,6 +73,7 @@ sleep 1 & wait`)
 		"--headless=new",
 		"--user-agent=" + ua,
 		"--disable-gpu",
+		"--disable-features=msImplicitSignin",
 		"--extra",
 		"about:blank",
 	}

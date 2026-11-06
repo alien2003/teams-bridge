@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -225,10 +226,11 @@ func TestSingleInstanceLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(l.Release)
 	if _, err := AcquireLock(home); !errors.Is(err, ErrLocked) {
 		t.Fatalf("second lock: %v", err)
 	}
-	if held, pid := Held(home); !held || pid == "" {
+	if held, pid := Held(home); !held || pid != strconv.Itoa(os.Getpid()) {
 		t.Fatalf("Held = %v %q", held, pid)
 	}
 	l.Release()
