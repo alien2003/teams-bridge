@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -72,10 +73,47 @@ type daemon struct {
 	once      sync.Once
 	outMu     sync.RWMutex // guards closing the outbox against concurrent enqueue
 
-	mu       sync.Mutex
-	recent   map[string]time.Time // dedup of identical notifications (page + SW for one message)
-	rejected int
-	ver      config.Version
+	mu      sync.Mutex
+	recent  map[[32]byte]time.Time // dedup of identical notifications (page + SW for one message)
+	counts  map[string]int         // occurrences per throttled log line
+	bucket  tokenBucket            // page-originated notifications per second
+	ver     config.Version         // last version the running browser reported (CDP)
+	verDisk string                 // the on-disk version that ver was learned for
+}
+
+// Page-originated notifications are rate limited: any script on the Teams page can call the
+// binding, and every accepted call is a push to the phone.
+const (
+	notifyBurst = 30
+	notifyRate  = 1.0 // per second, sustained
+)
+
+type tokenBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+func (b *tokenBucket) allow(now time.Time) bool {
+	if b.last.IsZero() {
+		b.tokens, b.last = notifyBurst, now
+	}
+	b.tokens = min(notifyBurst, b.tokens+now.Sub(b.last).Seconds()*notifyRate)
+	b.last = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+// throttled reports whether the n-th occurrence of a per-event log line should be written (the
+// first 10, then every 100th), so a page cannot flood the log.
+func (d *daemon) throttled(key string) (int, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.counts[key]++
+	n := d.counts[key]
+	return n, n <= 10 || n%100 == 0
 }
 
 // Run runs the daemon until ctx is cancelled (or, with Once, until one notification was delivered).
@@ -106,7 +144,8 @@ func Run(ctx context.Context, o Options) error {
 		outbox:    make(chan proto.Message, outboxSize),
 		closing:   make(chan struct{}),
 		delivered: make(chan struct{}),
-		recent:    map[string]time.Time{},
+		recent:    map[[32]byte]time.Time{},
+		counts:    map[string]int{},
 	}
 	d.alerts = session.NewDebouncer(o.Debounce, nil)
 	for kind, at := range d.state.get().LastAlerts { // survive restarts (systemd Restart=always)
@@ -138,7 +177,7 @@ func Run(ctx context.Context, o Options) error {
 		hbDone = make(chan struct{})
 		go func() {
 			defer close(hbDone)
-			session.RunHeartbeat(runCtx, time.Duration(cfg.HeartbeatHours)*time.Hour, d.sendHeartbeat)
+			session.RunHeartbeat(runCtx, time.Duration(cfg.HeartbeatHours)*time.Hour, d.sendHeartbeat, log)
 		}()
 	} else {
 		go func() {
@@ -197,7 +236,9 @@ func (d *daemon) enqueue(m proto.Message) {
 	select {
 	case d.outbox <- m:
 	default:
-		d.log.Warn("outbox full; dropping a message", "type", m.T)
+		if n, ok := d.throttled("outbox full"); ok {
+			d.log.Warn("outbox full; dropping a message", "type", m.T, "dropped_total", n)
+		}
 	}
 }
 
@@ -221,6 +262,15 @@ func (d *daemon) deliver(ctx context.Context, m proto.Message) error {
 		case proto.TypeMsg:
 			s.LastMessage = now
 			s.Messages++
+		case proto.TypeAlert:
+			// Only a delivered alert counts for the debounce carried across restarts: one that
+			// failed must be able to go out after the next start.
+			if m.Kind != proto.KindDaemonStopping {
+				if s.LastAlerts == nil {
+					s.LastAlerts = map[string]time.Time{}
+				}
+				s.LastAlerts[m.Kind] = now
+			}
 		}
 	})
 	if m.T == proto.TypeMsg {
@@ -244,15 +294,9 @@ func (d *daemon) sendHeartbeat(ctx context.Context) error {
 // onAlert receives the alerts that passed the shared debouncer (one per kind per 6 h).
 func (d *daemon) onAlert(a session.Alert) {
 	d.log.Warn("alert", "kind", a.Kind, "reason", a.Reason)
-	d.state.update(func(s *State) {
-		if s.LastAlerts == nil {
-			s.LastAlerts = map[string]time.Time{}
-		}
-		s.LastAlerts[a.Kind] = a.At
-		if a.Kind == proto.KindSessionExpired {
-			s.SessionOK = false
-		}
-	})
+	if a.Kind == proto.KindSessionExpired {
+		d.state.update(func(s *State) { s.SessionOK = false })
+	}
 	m := proto.Message{T: proto.TypeAlert, Kind: a.Kind, Title: session.Title(a.Kind), URL: d.cfg.TeamsURL}
 	switch a.Kind {
 	case proto.KindSessionExpired:
@@ -270,11 +314,8 @@ func (d *daemon) onAlert(a session.Alert) {
 func (d *daemon) onBinding(transport, payload string) {
 	ev, err := hook.Parse(payload)
 	if err != nil {
-		d.mu.Lock()
-		d.rejected++
-		n := d.rejected
-		d.mu.Unlock()
-		if n <= 10 || n%100 == 0 { // the page can call the binding at will: don't let it flood the log
+		// The page can call the binding at will: don't let it flood the log.
+		if n, ok := d.throttled("rejected"); ok {
 			d.log.Warn("rejected binding payload", "transport", transport, "bytes", len(payload), "err", err, "rejected_total", n)
 		}
 		return
@@ -283,16 +324,20 @@ func (d *daemon) onBinding(transport, payload string) {
 	case hook.KindNotification:
 		d.onNotification(ev)
 	case hook.KindTitle:
-		d.log.Info("unread count", "count", ev.Count)
+		if n, ok := d.throttled("unread"); ok {
+			d.log.Info("unread count", "count", ev.Count, "reports", n)
+		}
 		d.state.update(func(s *State) { s.UnreadCount = ev.Count })
 	case hook.KindHooked:
-		d.log.Info("page hook active", "source", ev.Source)
+		if n, ok := d.throttled("hooked"); ok {
+			d.log.Info("page hook active", "source", ev.Source, "reports", n)
+		}
 	}
 }
 
 func (d *daemon) onNotification(ev hook.Event) {
 	now := time.Now()
-	key := ev.Title + "\x00" + ev.Body + "\x00" + ev.Tag
+	key := sha256.Sum256([]byte(ev.Title + "\x00" + ev.Body + "\x00" + ev.Tag))
 	d.mu.Lock()
 	for k, t := range d.recent {
 		if now.Sub(t) > dedupWindow {
@@ -301,11 +346,21 @@ func (d *daemon) onNotification(ev hook.Event) {
 	}
 	_, dup := d.recent[key]
 	d.recent[key] = now
+	allowed := dup || d.bucket.allow(now)
 	d.mu.Unlock()
 	d.log.Debug("notification raw", "source", ev.Source, "title", ev.Title, "body", ev.Body, "tag", ev.Tag,
 		"data", string(ev.Data), "data_dropped", ev.DataDropped, "href", ev.Href)
 	if dup {
-		d.log.Info("duplicate notification dropped", "source", ev.Source)
+		if n, ok := d.throttled("duplicate"); ok {
+			d.log.Info("duplicate notification dropped", "source", ev.Source, "dropped_total", n)
+		}
+		return
+	}
+	if !allowed {
+		if n, ok := d.throttled("rate"); ok {
+			d.log.Warn("notification rate limit exceeded; dropping", "source", ev.Source, "dropped_total", n,
+				"limit", fmt.Sprintf("%d burst, %.0f/s", notifyBurst, notifyRate))
+		}
 		return
 	}
 	url := hook.DeepLink(d.cfg.TeamsURL, ev)
@@ -344,15 +399,20 @@ func (d *daemon) runBrowser(ctx context.Context, started func()) error {
 	if err != nil {
 		return err
 	}
+	// The version on disk is read before every launch (an auto-update changes it under a running
+	// daemon); what the running browser reports over CDP is the authority (D7/D13).
+	disk, derr := config.BrowserVersion(ctx, b.Path)
 	d.mu.Lock()
-	ver := d.ver
+	ver := disk
+	switch {
+	case derr != nil:
+		ver = d.ver // unknown on disk: what the browser told us last time (maybe nothing yet)
+	case d.ver.Major != 0 && d.verDisk == disk.Full:
+		ver = d.ver // disk said this before and the running binary differed (a staged update)
+	}
 	d.mu.Unlock()
-	if ver.Major == 0 {
-		if v, err := config.BrowserVersion(ctx, b.Path); err == nil {
-			ver = v
-		} else {
-			d.log.Warn("browser version unknown before launch; asking the browser", "err", err)
-		}
+	if derr != nil && ver.Major == 0 {
+		d.log.Warn("browser version unknown before launch; asking the browser", "err", derr)
 	}
 	ua := browser.EffectiveUserAgent(d.cfg.UserAgent, ver.Major)
 	proc, err := browser.Launch(ctx, browser.LaunchOptions{
@@ -391,12 +451,15 @@ func (d *daemon) runBrowser(ctx context.Context, started func()) error {
 	}
 	defer sess.Close()
 	started()
-	if v := sess.Version(); v.Major != 0 {
+	if actual := sess.ActualVersion(); actual.Major != 0 {
 		d.mu.Lock()
-		d.ver = v
+		d.ver, d.verDisk = actual, disk.Full
 		d.mu.Unlock()
-		if ua == "" { // launched without the browser-wide UA: service workers saw the real one
-			d.log.Warn("restarting the browser once with the browser-wide user agent", "version", v.Full)
+		// Launched without the browser-wide UA, or with another major version's: service workers
+		// and the client hints would disagree with the running browser. Restart once with it.
+		if ua == "" || actual.Major != ver.Major {
+			d.log.Warn("restarting the browser with the user agent of the running version",
+				"running", actual.Full, "assumed", ver.Full)
 			return errRelaunch
 		}
 	}
@@ -467,7 +530,7 @@ func Login(ctx context.Context, o Options) error {
 		o.Logger.Warn("browser version unknown", "err", err)
 	}
 	return browser.Login(ctx, browser.LoginOptions{
-		Path: b.Path, Home: o.Home, TeamsURL: o.Config.TeamsURL, LoginHosts: o.Config.LoginHosts,
+		Path: b.Path, Home: o.Home, TeamsURL: o.Config.TeamsURL, LoginHosts: o.Config.LoginHosts, Version: ver,
 		ExtraArgs: o.Config.BrowserArgs, ImplicitSignin: o.Config.ImplicitSignin,
 		UserAgent: browser.EffectiveUserAgent(o.Config.UserAgent, ver.Major),
 		Logger:    o.Logger,

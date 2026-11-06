@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -162,7 +163,7 @@ var ErrNoServiceAccount = errors.New("fcm_service_account is not set in config.t
 
 // ServiceAccountJSON returns the service-account JSON, reading the file if the value is a path.
 func (c *Config) ServiceAccountJSON(home string) ([]byte, error) {
-	v := strings.TrimSpace(c.FCMServiceAccount)
+	v := strings.TrimPrefix(strings.TrimSpace(c.FCMServiceAccount), "\ufeff")
 	if v == "" {
 		return nil, ErrNoServiceAccount
 	}
@@ -175,9 +176,35 @@ func (c *Config) ServiceAccountJSON(home string) ([]byte, error) {
 	}
 	b, err := os.ReadFile(p)
 	if err != nil {
-		return nil, fmt.Errorf("config: fcm_service_account: %w", err)
+		// Never echo the value unless it plausibly is a path: it might be key material pasted in
+		// another form (base64, PEM), and this error reaches the terminal and the journal.
+		var pe *fs.PathError
+		if errors.As(err, &pe) {
+			err = pe.Err
+		}
+		if looksLikePath(v) {
+			return nil, fmt.Errorf("config: fcm_service_account %q: %w", v, err)
+		}
+		return nil, fmt.Errorf("config: fcm_service_account is neither inline JSON (starting with '{') nor a readable file: %w", err)
 	}
 	return b, nil
+}
+
+// looksLikePath: short, no JSON/PEM characters, and not a long run of base64 characters.
+func looksLikePath(v string) bool {
+	if len(v) > 260 || strings.ContainsAny(v, "\"\n{}=") || strings.Contains(v, "PRIVATE") {
+		return false
+	}
+	if len(v) >= 40 {
+		b64 := true
+		for _, r := range v {
+			b64 = b64 && (r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '+' || r == '/' || r == '_' || r == '-')
+		}
+		if b64 {
+			return false
+		}
+	}
+	return true
 }
 
 // Path is the config file inside home.
@@ -196,7 +223,13 @@ func Load(home string) (cfg *Config, exists bool, err error) {
 	}
 	md, err := toml.Decode(string(b), c)
 	if err != nil {
-		return nil, true, fmt.Errorf("config: %s: %w", Path(home), err)
+		// The TOML parser quotes the offending token, which for `secret = ABCD…` (unquoted) is the
+		// pairing secret itself: report the position only.
+		var pe toml.ParseError
+		if errors.As(err, &pe) {
+			return nil, true, fmt.Errorf("config: %s: syntax error on line %d (after key %q); string values must be quoted", Path(home), pe.Position.Line, pe.LastKey)
+		}
+		return nil, true, fmt.Errorf("config: %s: invalid TOML", Path(home))
 	}
 	if und := md.Undecoded(); len(und) > 0 {
 		return nil, true, fmt.Errorf("config: %s: unknown key %q", Path(home), und[0].String())

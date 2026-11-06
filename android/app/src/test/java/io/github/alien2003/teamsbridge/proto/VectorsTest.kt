@@ -152,6 +152,8 @@ class VectorsTest {
         assertThrows(ProtoException::class.java) { Envelope.open(wrong, c) }
         assertThrows(ProtoException::class.java) { Envelope.open(key, "not base64!") }
         assertThrows(ProtoException::class.java) { Envelope.open(key, "") }
+        // Go's DecryptMessage requires padded standard base64; so does the receiver.
+        assertThrows(ProtoException::class.java) { Envelope.open(key, c.trimEnd('=')) }
         assertThrows(ProtoException::class.java) { Envelope.open(key, c.substring(0, c.length - 4)) }
         // Flipping any single byte of nonce, ciphertext or tag fails authentication.
         val sealed = Base64.getDecoder().decode(c)

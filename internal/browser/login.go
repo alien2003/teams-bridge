@@ -3,6 +3,7 @@ package browser
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/url"
 	"strings"
@@ -10,8 +11,11 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
+
+	"github.com/alien2003/teams-bridge/internal/config"
 )
 
 // DefaultLoginSettle is how long the main frame must stay on the Teams origin before Login
@@ -33,9 +37,11 @@ type LoginOptions struct {
 	ExtraArgs  []string
 	// ImplicitSignin: see LaunchOptions.ImplicitSignin.
 	ImplicitSignin bool
-	// UserAgent, if set, is passed as --user-agent, so the interactive sign-in presents the same
-	// user agent as the daemon will (Conditional Access evaluates the device platform at sign-in).
+	// UserAgent, if set, is passed as --user-agent and applied to the page together with the client
+	// hints for Version, so the interactive sign-in presents the same platform as the daemon will
+	// (Conditional Access evaluates the device platform at sign-in).
 	UserAgent string
+	Version   config.Version
 	// Settle overrides DefaultLoginSettle (tests).
 	Settle time.Duration
 	Logger *slog.Logger
@@ -82,7 +88,13 @@ func Login(ctx context.Context, o LoginOptions) error {
 	}
 	defer cancelPage()
 
-	st := &loginState{settle: settle, teamsOrigin: originOf(o.TeamsURL), loginHosts: o.LoginHosts, log: log, onSignedIn: o.OnSignedIn}
+	// "On Teams" = the teams_url origin or one of the domains Teams moves users between (the same
+	// set the session detector uses).
+	origins := []string{originOf(o.TeamsURL)}
+	for _, x := range config.DefaultPermissionOrigins {
+		origins = append(origins, originOf(x))
+	}
+	st := &loginState{settle: settle, teamsOrigins: origins, loginHosts: o.LoginHosts, log: log, onSignedIn: o.OnSignedIn}
 	navs := chromedp.Events(pageCtx, page.FrameNavigated)
 	go func() {
 		for ev, err := range navs {
@@ -98,6 +110,17 @@ func Login(ctx context.Context, o LoginOptions) error {
 	defer st.stop()
 
 	if err := chromedp.Do(pageCtx, chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
+		if o.UserAgent != "" {
+			var meta *emulation.UserAgentMetadata
+			if looksLikeChromiumUA(o.UserAgent) && o.Version.Full != "" {
+				meta = UserAgentMetadata(o.Version.Full)
+			}
+			if _, err := cdp.Call(ctx, t, emulation.SetUserAgentOverride, emulation.SetUserAgentOverrideParams{
+				UserAgent: o.UserAgent, UserAgentMetadata: meta,
+			}); err != nil {
+				return fmt.Errorf("setUserAgentOverride: %w", err)
+			}
+		}
 		_, err := cdp.Call(ctx, t, page.Navigate, page.NavigateParams{URL: o.TeamsURL})
 		return err
 	})); err != nil {
@@ -123,11 +146,11 @@ func Login(ctx context.Context, o LoginOptions) error {
 // loginState decides "signed in": the main frame has been on the Teams origin, and not on a login
 // host, for the settle time without another main-frame navigation.
 type loginState struct {
-	settle      time.Duration
-	teamsOrigin string
-	loginHosts  []string
-	log         *slog.Logger
-	onSignedIn  func()
+	settle       time.Duration
+	teamsOrigins []string
+	loginHosts   []string
+	log          *slog.Logger
+	onSignedIn   func()
 
 	mu       sync.Mutex
 	gen      int
@@ -144,7 +167,12 @@ func (l *loginState) navigated(rawURL string) {
 		l.timer.Stop()
 		l.timer = nil
 	}
-	onTeams := originOf(rawURL) == l.teamsOrigin && !matchesAny(hostOf(rawURL), l.loginHosts)
+	origin := originOf(rawURL)
+	onTeams := false
+	for _, o := range l.teamsOrigins {
+		onTeams = onTeams || (origin != "" && origin == o)
+	}
+	onTeams = onTeams && !matchesAny(hostOf(rawURL), l.loginHosts)
 	if !onTeams {
 		if l.in {
 			l.log.Info("not signed in (yet): the page left Teams for the sign-in page")

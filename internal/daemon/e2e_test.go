@@ -153,8 +153,11 @@ func TestE2ENotificationsReachFCMEncrypted(t *testing.T) {
 			t.Fatal("clear text in the FCM payload")
 		}
 	}
-	if logs := h.logs.String(); strings.Contains(logs, "level=INFO msg=\"notification captured\"") && strings.Contains(logs, "title=Alice") && !strings.Contains(logs, "level=DEBUG") {
-		t.Error("title logged above debug level")
+	// BRIEF §5: titles and bodies only at debug level.
+	for _, ln := range strings.Split(h.logs.String(), "\n") {
+		if !strings.Contains(ln, "level=DEBUG") && (strings.Contains(ln, "Alice") || strings.Contains(ln, "body=hi") || strings.Contains(ln, "from sw-")) {
+			t.Errorf("notification text logged above debug level: %s", ln)
+		}
 	}
 	if err := h.stop(); err != nil {
 		t.Fatalf("Run: %v", err)

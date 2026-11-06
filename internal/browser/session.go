@@ -68,6 +68,7 @@ type Handlers struct {
 type Session struct {
 	log     *slog.Logger
 	ver     config.Version
+	actual  config.Version
 	ua      string
 	meta    *emulation.UserAgentMetadata
 	handler Handlers
@@ -156,18 +157,22 @@ func Attach(ctx context.Context, wsURL string, o SessionOptions, h Handlers) (*S
 	}
 	br := chromedp.FromContext(pageCtx).Browser
 
+	// Always ask the running browser: the caller's version comes from the binary on disk, which an
+	// auto-update can change under a running daemon (or stage next to a still-old msedge.exe).
+	var actual config.Version
+	if res, err := chromedp.CallBrowser(pageCtx, browser.GetVersion, cdp.Empty{}); err == nil {
+		if v, ok := config.ParseVersion(res.Product); ok {
+			actual = v
+		} else if v, ok := config.ParseVersion(res.UserAgent); ok {
+			actual = v
+		}
+		log.Debug("browser version from CDP", "product", res.Product, "parsed", actual.Full)
+	} else {
+		log.Warn("Browser.getVersion failed; using the configured version", "err", err)
+	}
 	ver := o.Version
 	if ver.Major == 0 || ver.Full == "" {
-		if res, err := chromedp.CallBrowser(pageCtx, browser.GetVersion, cdp.Empty{}); err == nil {
-			if v, ok := config.ParseVersion(res.Product); ok {
-				ver = v
-			} else if v, ok := config.ParseVersion(res.UserAgent); ok {
-				ver = v
-			}
-			log.Debug("browser version from CDP", "product", res.Product, "parsed", ver.Full)
-		} else {
-			log.Warn("Browser.getVersion failed; using the configured/zero version", "err", err)
-		}
+		ver = actual
 	}
 
 	uaString := o.UserAgent
@@ -189,7 +194,7 @@ func Attach(ctx context.Context, wsURL string, o SessionOptions, h Handlers) (*S
 
 	evCtx, cancelEv := context.WithCancel(pageCtx)
 	s := &Session{
-		log: log, ver: ver, ua: uaString, meta: meta, handler: h,
+		log: log, ver: ver, actual: actual, ua: uaString, meta: meta, handler: h,
 		pageCtx: pageCtx, evCtx: evCtx,
 		cancelEv: cancelEv, cancel: cancel,
 		done:    make(chan struct{}),
@@ -495,6 +500,12 @@ func (s *Session) drainWorker(wctx context.Context, id target.ID) {
 			s.log.Debug("worker drain ended", "target", id, "err", err)
 			return
 		}
+		// 64 reports of at most hook.MaxPayloadBytes each, plus JSON quoting: anything bigger did not
+		// come from drain.js as written.
+		if len(raw) > 64*(2*hook.MaxPayloadBytes+8) {
+			s.log.Warn("service-worker queue drain too large; dropped", "bytes", len(raw))
+			raw = ""
+		}
 		if raw == "" || raw == "[]" {
 			continue
 		}
@@ -564,6 +575,9 @@ func (s *Session) Navigate(ctx context.Context, url string) error {
 
 // Version returns the browser version this session is using.
 func (s *Session) Version() config.Version { return s.ver }
+
+// ActualVersion is what the running browser reported over CDP (zero if it could not be asked).
+func (s *Session) ActualVersion() config.Version { return s.actual }
 
 // UserAgent returns the user-agent string this session applies to the page and its workers.
 func (s *Session) UserAgent() string { return s.ua }

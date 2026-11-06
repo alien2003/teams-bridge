@@ -190,7 +190,7 @@ func TestRunHeartbeatReal(t *testing.T) {
 			close(got)
 		}
 		return nil
-	})
+	}, nil)
 	select {
 	case <-got:
 	case <-ctx.Done():

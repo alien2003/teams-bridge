@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/alien2003/teams-bridge/internal/config"
+	"github.com/alien2003/teams-bridge/internal/daemon"
 	"github.com/alien2003/teams-bridge/internal/fcm/fcmtest"
 	"github.com/alien2003/teams-bridge/internal/proto"
 )
@@ -140,16 +141,50 @@ func TestLogFileRotation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.Write(bytes.Repeat([]byte("x"), maxLogSize+1)); err != nil {
-		t.Fatal(err)
+	chunk := bytes.Repeat([]byte("x"), 1<<20)
+	for range 12 { // rotates while writing, not only at the next start
+		if _, err := f.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
 	}
 	f.Close()
-	f, err = openLogFile(p)
+	if st, err := os.Stat(p + ".1"); err != nil || st.Size() > maxLogSize {
+		t.Fatalf("not rotated while running: %v", err)
+	}
+	if st, err := os.Stat(p); err != nil || st.Size() > maxLogSize || st.Size() == 0 {
+		t.Fatalf("current log: %v", err)
+	}
+}
+
+func TestRunErrorReachesLogFile(t *testing.T) {
+	home := t.TempDir()
+	logf := filepath.Join(home, "tbd.log")
+	if code, _, _ := runCLI(t, "", "--home", home, "run", "--log-file", logf); code == 0 {
+		t.Fatal("run without pairing succeeded")
+	}
+	b, err := os.ReadFile(logf)
+	if err != nil || !strings.Contains(string(b), "not paired") {
+		t.Fatalf("log file lacks the fatal error: %v %q", err, b)
+	}
+}
+
+func TestPairNewRefusedWhileDaemonRuns(t *testing.T) {
+	home := t.TempDir()
+	if code, _, e := runCLI(t, "", "--home", home, "pair", "--no-ping"); code != 0 {
+		t.Fatal(e)
+	}
+	before, _, _ := config.Load(home)
+	lock, err := daemon.AcquireLock(home)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Close()
-	if st, err := os.Stat(p + ".1"); err != nil || st.Size() <= maxLogSize {
-		t.Fatalf("not rotated: %v", err)
+	defer lock.Release()
+	code, _, e := runCLI(t, "", "--home", home, "pair", "--no-ping", "--new")
+	if code == 0 || !strings.Contains(e, "is running") {
+		t.Fatalf("pair --new while the daemon runs: %d %q", code, e)
+	}
+	after, _, _ := config.Load(home)
+	if after.Secret != before.Secret {
+		t.Fatal("secret changed although refused")
 	}
 }

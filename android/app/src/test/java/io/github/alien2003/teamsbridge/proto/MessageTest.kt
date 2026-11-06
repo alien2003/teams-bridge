@@ -5,7 +5,10 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
-/** JSON parsing with the semantics of Go's json.Unmarshal into proto.Message + Validate. */
+/**
+ * JSON parsing that matches Go's json.Unmarshal into proto.Message + Validate for the well-formed
+ * documents the Go encoder emits (see Message.parse for where the parsers differ).
+ */
 class MessageTest {
     private val base = """"v":1,"t":"msg","id":"x","ts":1767225600"""
 

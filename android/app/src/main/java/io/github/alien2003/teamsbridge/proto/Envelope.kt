@@ -10,6 +10,9 @@ object Envelope {
 
     /** base64-decodes, authenticates, decrypts and unpads [c]; returns the exact JSON bytes. */
     fun openJson(key: ByteArray, c: String): ByteArray {
+        // Standard base64 with padding, as Go's DecryptMessage requires (java.util.Base64 would
+        // also accept a missing '=').
+        if (c.length % 4 != 0) throw ProtoException("c is not padded base64")
         val sealed = try {
             Base64.getDecoder().decode(c)
         } catch (_: IllegalArgumentException) {

@@ -34,8 +34,11 @@ func NextHeartbeat(last, now time.Time, every time.Duration) time.Duration {
 // RunHeartbeat calls send once right away and then every `every` (DefaultHeartbeat if ≤ 0)
 // until ctx is done. A send that returns an error is retried after HeartbeatRetry. send is
 // called from this goroutine; RunHeartbeat returns when ctx is done.
-func RunHeartbeat(ctx context.Context, every time.Duration, send func(context.Context) error) {
-	runHeartbeat(ctx, every, HeartbeatCheck, send, time.Now, time.After, slog.Default())
+func RunHeartbeat(ctx context.Context, every time.Duration, send func(context.Context) error, log *slog.Logger) {
+	if log == nil {
+		log = slog.Default()
+	}
+	runHeartbeat(ctx, every, HeartbeatCheck, send, time.Now, time.After, log)
 }
 
 func runHeartbeat(ctx context.Context, every, check time.Duration, send func(context.Context) error,

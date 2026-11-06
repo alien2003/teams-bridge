@@ -33,10 +33,16 @@ data class Message(
         const val KIND_DAEMON_STOPPING = "daemon_stopping"
 
         /**
-         * Parses and validates a message document with the semantics of Go's `json.Unmarshal` into
-         * `proto.Message` plus `Validate`: missing fields and `null` are zero values, unknown fields
-         * are ignored, a field of the wrong JSON type is an error, `v` must be the integer 1, `t` one of
-         * msg/alert/hb/pair and `id` non-empty. Trailing non-whitespace after the object is an error.
+         * Parses and validates a message document. For well-formed RFC 8259 documents with the
+         * lowercase keys the Go encoder emits it matches Go's `json.Unmarshal` into `proto.Message`
+         * plus `Validate`: missing fields and `null` are zero values, unknown fields are ignored, a
+         * field of the wrong JSON type is an error, `v` must be the integer 1, `t` one of
+         * msg/alert/hb/pair and `id` non-empty, and trailing non-whitespace is an error.
+         *
+         * It is not a strict JSON validator: Go matches keys case-insensitively, and Android's
+         * platform org.json accepts comments, unquoted or single-quoted strings, '=' / ';'
+         * separators and hex/octal integers (the JVM tests run JSON-java instead). That is harmless:
+         * only plaintext that authenticated under K, i.e. written by the daemon, reaches the parser.
          */
         fun parse(json: String): Message {
             val obj = try {

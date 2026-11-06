@@ -197,3 +197,37 @@ func TestVersions(t *testing.T) {
 		t.Fatalf("%+v %v", got, err)
 	}
 }
+
+func TestErrorsNeverEchoSecrets(t *testing.T) {
+	home := t.TempDir()
+	s, _ := proto.NewSecret(nil)
+	if err := os.WriteFile(Path(home), []byte("secret = "+s.Code()+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := Load(home)
+	if err == nil || strings.Contains(err.Error(), s.Code()) || strings.Contains(err.Error(), s.Code()[:10]) {
+		t.Fatalf("unquoted secret: %v", err)
+	}
+	c := Default()
+	for _, v := range []string{
+		"LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0tCk1JSUV2Z0lCQURBTkJna3Foa2lHOXcwQkFRRUZBQVNDQktnd2dnU2tBZ0VBQW9JQkFRQz1odW5kcmVk",
+		"-----BEGIN PRIVATE KEY-----\nMIIEvg\n-----END PRIVATE KEY-----", // secrets-check: allow
+		"\ufeff{\"type\":\"service_account\"}",
+	} {
+		c.FCMServiceAccount = v
+		b, err := c.ServiceAccountJSON(home)
+		if strings.HasPrefix(v, "\ufeff") {
+			if err != nil || !strings.HasPrefix(string(b), "{") {
+				t.Errorf("BOM-prefixed inline JSON not accepted: %v", err)
+			}
+			continue
+		}
+		if err == nil || strings.Contains(err.Error(), v[:20]) {
+			t.Errorf("error echoes the value: %v", err)
+		}
+	}
+	c.FCMServiceAccount = "missing.sa.json"
+	if _, err := c.ServiceAccountJSON(home); err == nil || !strings.Contains(err.Error(), "missing.sa.json") {
+		t.Errorf("a plain path should be named: %v", err)
+	}
+}

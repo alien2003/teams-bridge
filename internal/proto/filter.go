@@ -17,7 +17,8 @@ type Filter struct {
 
 // Accept reports whether m should be shown, and remembers its id if so.
 func (f *Filter) Accept(m Message, now time.Time) bool {
-	if now.Sub(time.Unix(m.TS, 0)) > MaxAge {
+	// Compare in Unix seconds: time.Unix on an arbitrary ts can overflow and wrap into the past.
+	if cut := now.Add(-MaxAge); m.TS < cut.Unix() || (m.TS == cut.Unix() && cut.Nanosecond() > 0) {
 		return false
 	}
 	if f.seen == nil {

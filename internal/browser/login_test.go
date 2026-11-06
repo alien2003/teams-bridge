@@ -21,7 +21,7 @@ import (
 func TestLoginStateSettle(t *testing.T) {
 	signed := make(chan struct{}, 4)
 	l := &loginState{
-		settle: 50 * time.Millisecond, teamsOrigin: "https://teams.microsoft.com",
+		settle: 50 * time.Millisecond, teamsOrigins: []string{"https://teams.microsoft.com", "https://teams.cloud.microsoft"},
 		loginHosts: []string{"login.microsoftonline.com"}, log: testLogger(),
 		onSignedIn: func() { signed <- struct{}{} },
 	}
@@ -241,5 +241,30 @@ func TestAttachSinglePage(t *testing.T) {
 	}
 	if pages := pageTargets(t, proc.WSURL); len(pages) != 1 {
 		t.Errorf("page targets %v, want exactly one", pages)
+	}
+}
+
+// TestLoginStateOtherTeamsDomain: a normal sign-in may end on teams.cloud.microsoft (Teams moves
+// users between its domains); an unrelated origin never counts.
+func TestLoginStateOtherTeamsDomain(t *testing.T) {
+	signed := make(chan struct{}, 1)
+	l := &loginState{
+		settle: 30 * time.Millisecond, teamsOrigins: []string{"https://teams.microsoft.com", "https://teams.cloud.microsoft"},
+		loginHosts: []string{"login.microsoftonline.com"}, log: testLogger(),
+		onSignedIn: func() { signed <- struct{}{} },
+	}
+	defer l.stop()
+	l.navigated("https://teams.microsoft.com/v2/")
+	l.navigated("https://login.microsoftonline.com/common/oauth2")
+	l.navigated("https://teams.cloud.microsoft/v2/")
+	select {
+	case <-signed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a sign-in that ends on teams.cloud.microsoft never counted")
+	}
+	l.navigated("https://evil.example/v2/")
+	time.Sleep(100 * time.Millisecond)
+	if l.signedIn() {
+		t.Fatal("an unrelated origin counts as Teams")
 	}
 }

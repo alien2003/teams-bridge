@@ -176,7 +176,7 @@ func signalContext() (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }
 
-func (g *globals) cmdRun(args []string) error {
+func (g *globals) cmdRun(args []string) (err error) {
 	var once bool
 	var timeout time.Duration
 	var logFile string
@@ -188,11 +188,18 @@ func (g *globals) cmdRun(args []string) error {
 		return err
 	}
 	if logFile != "" {
-		f, err := openLogFile(logFile)
-		if err != nil {
-			return err
+		f, ferr := openLogFile(logFile)
+		if ferr != nil {
+			return ferr
 		}
-		defer f.Close()
+		// Under the hidden Windows task the original stderr goes nowhere: a fatal error (bad
+		// config, not paired, lock held) must end up in the log file too.
+		defer func() {
+			if err != nil {
+				fmt.Fprintf(f, "time=%s level=ERROR msg=\"tbd run: exiting\" err=%q\n", time.Now().Format(time.RFC3339), err.Error())
+			}
+			f.Close()
+		}()
 		g.stderr = f
 	}
 	home, cfg, log, err := g.load()
@@ -245,6 +252,13 @@ func (g *globals) cmdPair(args []string) error {
 	home, cfg, log, err := g.load()
 	if err != nil {
 		return err
+	}
+	if rotate {
+		// A running daemon keeps sealing with the secret it started with: a new pairing would get
+		// nothing until it restarts.
+		if held, pid := daemon.Held(home); held {
+			return fmt.Errorf("the daemon (pid %s) is running with the current pairing: stop it (systemctl --user stop tbd, or end the tbd task), run `tbd pair --new`, then start it again", pid)
+		}
 	}
 	secret, err := cfg.PairingSecret()
 	switch {

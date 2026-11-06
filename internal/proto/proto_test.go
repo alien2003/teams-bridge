@@ -7,9 +7,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"math"
 	"math/big"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -265,5 +267,18 @@ func TestFilter(t *testing.T) {
 	}
 	if !f.Accept(m, now) {
 		t.Fatal("id evicted after 256 newer ids must be accepted again")
+	}
+}
+
+func TestFilterExtremeTimestamps(t *testing.T) {
+	now := time.Unix(1767225600, 0)
+	var f Filter
+	for i, tc := range []struct {
+		ts   int64
+		want bool
+	}{{math.MaxInt64, true}, {math.MinInt64, false}, {0, false}, {-1, false}, {now.Unix(), true}} {
+		if got := f.Accept(Message{V: 1, T: TypeMsg, ID: strconv.Itoa(i), TS: tc.ts}, now); got != tc.want {
+			t.Errorf("ts %d: accepted=%v, want %v", tc.ts, got, tc.want)
+		}
 	}
 }
