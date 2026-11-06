@@ -59,7 +59,7 @@ scheduled task.
 | `%TEMP%\notificationimages*` | noise (host) | Windows toast images | none (not ours) | noise |
 | `%TEMP%\Microsoft.PackageManagement*` | noise (host) | PowerShell's PackageManagement module cache, touched by any `powershell.exe` start (including our snapshot script) | none | noise |
 | `%TEMP%\MicrosoftEdgeUpdate.log` | noise (Edge) | Edge Update's own log | none (shared) | noise |
-| `%TEMP%\cv_debug.log` | noise (Edge) | Edge's correlation-vector log, written into the TEMP of any msedge.exe: the user's own Edge, and the real daemon's Edge before D19 gave tbd's browser a private `<home>\tmp` on Windows | none (shared; Edge recreates it) | noise |
+| `%TEMP%\cv_debug.log` | ours (real daemon, before D19) | Edge's correlation-vector log: the real daemon's Edge wrote it into the user's TEMP until D19 gave tbd's browser `<home>\tmp` (where it now appears). Edge recreates it on demand, so removing it is safe even if the user's own Edge writes one | `rm -f /mnt/c/Users/user/AppData/Local/Temp/cv_debug.log` | run |
 | `%TEMP%\dd_*` | noise (host) | background downloader temp files of a host app | none (not ours) | noise |
 | `%LOCALAPPDATA%\CrashDumps` | noise (host) | Windows Error Reporting's local dump folder itself | none | noise |
 | `%LOCALAPPDATA%\Microsoft\Edge\User Data` | noise (host) | The user's own Edge, running on the host, touches its profile folder; our browsers never use it (`--user-data-dir`) | none (not ours) | noise |
