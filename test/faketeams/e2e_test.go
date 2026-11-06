@@ -228,6 +228,9 @@ func TestE2ENotificationsAllSources(t *testing.T) {
 	if got := strings.Join(alice.ev.OptionKeys, ","); got != "body,icon,timestamp,tag,requireInteraction,dir" {
 		t.Errorf("option keys %q", got)
 	}
+	if alice.ev.Timestamp == 0 {
+		t.Error("options.timestamp not forwarded")
+	}
 	wantLink := e.srv.Origin() + "/l/chat/19:uni01_alice@thread.v2/conversations"
 	if got := hook.DeepLink(e.srv.TeamsURL(), alice.ev); got != wantLink {
 		t.Errorf("DeepLink(Alice) = %q, want %q", got, wantLink)
@@ -637,5 +640,24 @@ func TestE2ENotificationShim(t *testing.T) {
 	}
 	if n != 1 {
 		t.Errorf("Once arrived %d times after a second injection, want 1", n)
+	}
+}
+
+// TestE2EGroupMessageFromSenderWithA1on1 is the case the title alone cannot decide: a group message
+// whose title is the sender's name (as Teams titles chat toasts), from someone who also has a 1:1
+// chat. The chat list's preview of the group shows this message, so the group wins.
+func TestE2EGroupMessageFromSenderWithA1on1(t *testing.T) {
+	e := start(t)
+	const timeout = 60 * time.Second
+	e.c.waitEvent(t, timeout, "the page's first notification", isNotification(hook.SourceWindow, "Alice"))
+	e.srv.NotifyWith("Alice", map[string]any{
+		"body": "see the doc", "icon": AliceIcon(e.srv.Origin()), "timestamp": time.Now().UnixMilli(),
+		"tag": "", "requireInteraction": true, "dir": "auto",
+	})
+	got := e.c.waitEvent(t, timeout, "the group message from Alice", func(r captured) bool {
+		return r.ev.Kind == hook.KindNotification && r.ev.Title == "Alice" && r.ev.Body == "see the doc"
+	})
+	if got.ev.Conversation != "19:uni01_projectx@thread.v2" {
+		t.Fatalf("resolved %q, want the group chat Project X", got.ev.Conversation)
 	}
 }

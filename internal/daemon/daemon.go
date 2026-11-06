@@ -339,7 +339,9 @@ func (d *daemon) onBinding(transport, payload string) {
 
 func (d *daemon) onNotification(ev hook.Event) {
 	now := time.Now()
-	key := sha256.Sum256([]byte(ev.Title + "\x00" + ev.Body + "\x00" + ev.Tag))
+	// Teams' tag is always empty: the conversation and Teams' own timestamp separate two messages
+	// with the same text, while the same message reported through two paths still matches.
+	key := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%d", ev.Title, ev.Body, ev.Tag, ev.Conversation, ev.Timestamp)))
 	d.mu.Lock()
 	for k, t := range d.recent {
 		if now.Sub(t) > dedupWindow {

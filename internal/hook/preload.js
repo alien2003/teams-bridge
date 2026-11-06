@@ -95,9 +95,11 @@
   // that carry the participant's id (data-person-mri, img src). One pass over the DOM collects
   // (a) elements carrying the sender id, resolved to their nearest ancestor holding a conversation
   // id (+1 each), and (b) every element whose whole attribute value is a conversation id, scored by
-  // its accessible name (aria-labelledby) against the notification title: equal +3, one containing
-  // the other +2 — that separates a 1:1 chat from a group with the same person, and finds groups
-  // whose item shows no avatar. Highest score wins; ties go to the first in the list (most recent).
+  // its preview showing this message's text (+4: the chat that just received it — this is what
+  // separates a group message from the sender's 1:1 chat when the title is the sender's name) and
+  // by its accessible name (aria-labelledby) against the notification title (equal +3, one
+  // containing the other +2). Highest score wins; ties go to the first in the list (most recent).
+  // It runs ~600 ms after the notification, outside Teams' toast pipeline, once the list has caught up.
   // Returns "" if nothing usable is found.
   var CONV_FULL = /^(?:\d{1,2}:[A-Za-z0-9._~%+=-]+@(?:thread\.v2|thread\.tacv2|thread\.skype|unq\.gbl\.spaces)|48:notes)$/;
   function convAttr(el) {
@@ -130,11 +132,14 @@
       return "";
     }
   }
-  function conversationOf(icon, title) {
+  function conversationOf(icon, title, body) {
     try {
       if (typeof document === "undefined" || !document.querySelectorAll) return "";
       var id = senderOf(icon), enc = id ? encodeURIComponent(id) : "";
       var t = String(title || "").replace(/\s+/g, " ").trim();
+      // The chat that just received this message shows it as its preview (list items truncate, so
+      // compare a prefix). Compared inside the page only; nothing of it is reported.
+      var b = String(body || "").replace(/\s+/g, " ").trim().slice(0, 30);
       var score = {}, order = [], labelled = {};
       function add(c, s) {
         if (!c) return;
@@ -150,12 +155,16 @@
         var el = els[i], at = el.attributes;
         if (!at) continue;
         var item = convAttr(el);
-        if (item && t && !labelled[item]) {
+        if (item && !labelled[item]) {
           labelled[item] = true;
           var label = labelOf(el);
-          if (label.length >= 2) {
+          if (t && label.length >= 2) {
             if (label === t) add(item, 3);
             else if (t.indexOf(label) >= 0 || label.indexOf(t) >= 0) add(item, 2);
+          }
+          if (b.length >= 3) {
+            var text = String(el.textContent || "").replace(/\s+/g, " ").slice(0, 2000);
+            if (text.indexOf(b) >= 0) add(item, 4);
           }
         }
         if (!id) continue;
@@ -247,6 +256,22 @@
         return null;
       }
     }
+    // later sends a notification report after ~600 ms, adding what the page shows about it then:
+    // the resolved conversation and the structure-only DOM probe. If timers fail, it sends now.
+    function later(obj) {
+      function go() {
+        try {
+          obj.domProbe = locate(obj.icon);
+          obj.conversation = conversationOf(obj.icon, obj.title, obj.body);
+        } catch (e) {}
+        send(obj);
+      }
+      try {
+        setTimeout(go, 600);
+      } catch (e) {
+        go();
+      }
+    }
     function send(obj) {
       var fn = binding();
       if (!fn) return;
@@ -292,7 +317,7 @@
         this.onshow = null;
         this._listeners = Object.create(null);
 
-        send({
+        later({
           kind: "notification",
           source: "window",
           title: this.title,
@@ -300,10 +325,9 @@
           tag: this.tag,
           data: this.data,
           icon: this.icon,
+          timestamp: typeof options.timestamp === "number" ? options.timestamp : null,
           href: href(),
           optionKeys: keysOf(options),
-          domProbe: locate(this.icon),
-          conversation: conversationOf(this.icon, this.title),
         });
 
         // Fire "show" asynchronously, like the real API.
@@ -386,7 +410,7 @@
         var origShow = SWR.prototype.showNotification;
         SWR.prototype.showNotification = function (title, options) {
           options = options || {};
-          send({
+          later({
             kind: "notification",
             source: "sw-page",
             title: str(title),
@@ -394,9 +418,9 @@
             tag: options.tag != null ? String(options.tag) : "",
             data: options.data !== undefined ? options.data : null,
             icon: options.icon != null ? String(options.icon) : "",
+            timestamp: typeof options.timestamp === "number" ? options.timestamp : null,
             href: href(),
             optionKeys: keysOf(options),
-            conversation: conversationOf(options.icon, title),
           });
           // Still call the original so the page sees normal behaviour.
           if (typeof origShow === "function") {

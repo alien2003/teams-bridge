@@ -403,3 +403,23 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   page origin, the DOM probe and the resolved id's shape) so the first days on the work machine
   show whether the same structure holds for work accounts, group chats and channels. Channel posts
   without a message id still fall back to `teams_url` (no documented channel link without groupId).
+* **Amended after the research workflow (2026-11-06):**
+  * The resolver runs ~600 ms after the notification (outside Teams' toast pipeline; a work
+    tenant's page can be ~20k elements, ~44 ms per scan), and the strongest signal is the chat
+    list's preview showing this message's text (+4): Teams titles a chat toast with the sender's
+    name, so a group message from someone you also have a 1:1 chat with would otherwise open the
+    1:1 chat. The text comparison happens inside the page; nothing of it is reported.
+  * `options.timestamp` is forwarded; the daemon's 10 s dedup key now includes the resolved
+    conversation and the timestamp (the tag is always empty, so the same short text in two chats was
+    merged).
+  * Verified from Teams' public JS bundle: `getNotificationOptionsPayload` builds `{body, icon,
+    timestamp, tag: undefined, requireInteraction, dir}` — no `data`, ever — and Teams' click
+    handler (`addEventListener("click")`) keeps the target chat only in a closure.
+  * **Correction to D8:** `https://teams.microsoft.com/v2/manifest.json` is served (scope `/v2/`), so
+    `…/l/…` links are outside the Teams PWA's scope and open in a browser; an installed PWA would need
+    an in-scope form (`/v2/?clientType=pwa#deepLink=…`). Open item, decided once the tap test on the
+    phone shows what the chosen handler does with `/l/chat/…`.
+  * A receive-only Trouter tap (the worker's socket, decoding the push body) would give message-level
+    links and channel ids; the measurement here cannot rule it in or out (it only looked at the
+    page's own sockets, without decoding). Deferred: the DOM resolver covers chats; revisit if the
+    work tenant shows gaps (channels, threads).

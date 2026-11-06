@@ -158,6 +158,19 @@ func (s *Server) Notify(title, body, tag string, data any) {
 	s.mu.Unlock()
 }
 
+// NotifyWith queues an on-demand window.Notification with exactly these options (e.g. shaped like
+// Teams v2's: body, icon, timestamp, tag, requireInteraction, dir).
+func (s *Server) NotifyWith(title string, options map[string]any) {
+	s.mu.Lock()
+	s.pending = append(s.pending, notifySpec{Title: title, Options: options})
+	s.mu.Unlock()
+}
+
+// AliceIcon is the avatar URL (on origin) that carries Alice's id, as Teams v2 uses it as the icon.
+func AliceIcon(origin string) string {
+	return origin + "/api/mt/zz/beta/users/8:orgid:00000000-0000-4000-8000-00000000a11c/profilepicturev2?displayname=Alice"
+}
+
 // Reset clears recorded requests and reports, queued notifications and the expiry simulations, so
 // the server can be reused across sub-tests.
 func (s *Server) Reset() {

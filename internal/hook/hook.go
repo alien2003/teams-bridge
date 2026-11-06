@@ -64,6 +64,8 @@ type Event struct {
 	// Conversation is the conversation id the hook resolved from the page (chat list) for this
 	// notification; validated, "" if none.
 	Conversation string
+	// Timestamp is options.timestamp (Unix milliseconds) as Teams set it, 0 if absent or implausible.
+	Timestamp int64
 }
 
 // ErrTooLarge is returned by Parse for a payload larger than MaxPayloadBytes.
@@ -89,6 +91,8 @@ type wire struct {
 	DOMProbe json.RawMessage `json:"domProbe"`
 	// Conversation: the conversation id the hook found in the page for this notification.
 	Conversation *string `json:"conversation"`
+	// Timestamp: options.timestamp; lenient (anything but a plausible number is ignored).
+	Timestamp json.RawMessage `json:"timestamp"`
 }
 
 // Parse validates and decodes an untrusted binding payload. Unknown fields are ignored; invalid
@@ -143,6 +147,10 @@ func Parse(payload string) (Event, error) {
 	ev.DOMProbe = probeStrings(w.DOMProbe)
 	if c := clean(w.Conversation); len(c) <= 300 && conversationRE.MatchString(c) {
 		ev.Conversation = c
+	}
+	var ts float64
+	if len(w.Timestamp) > 0 && json.Unmarshal(w.Timestamp, &ts) == nil && ts > 1e12 && ts < 1e14 {
+		ev.Timestamp = int64(ts)
 	}
 
 	if strings.TrimSpace(string(w.DataError)) == "true" {
