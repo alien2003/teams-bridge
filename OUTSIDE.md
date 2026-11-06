@@ -63,6 +63,7 @@ scheduled task.
 | `%TEMP%\dd_*` | noise (host) | background downloader temp files of a host app | none (not ours) | noise |
 | `%LOCALAPPDATA%\CrashDumps` | noise (host) | Windows Error Reporting's local dump folder itself | none | noise |
 | `%LOCALAPPDATA%\Microsoft\Edge\User Data` | noise (host) | The user's own Edge, running on the host, touches its profile folder; our browsers never use it (`--user-data-dir`) | none (not ours) | noise |
+| `%LOCALAPPDATA%\ConnectedDevicesPlatform*` | noise (host) | Windows' Connected Devices Platform service (Phone Link, nearby sharing) keeps its state here | none (not ours) | noise |
 | `%LOCALAPPDATA%\Microsoft\Terminal Server Client\Cache*` | noise (host) | Remote Desktop client (mstsc/msrdc) bitmap cache | none (not ours) | noise |
 | `%LOCALAPPDATA%\tbd*` | yours (production) | The daemon's real data dir on Windows: `config.toml`, the FCM service-account key `fcm.sa.json`, later the browser profile, `state.json`, `tbd.log`. Created on purpose for the real setup, not by tests | `Remove-Item -Recurse "$env:LOCALAPPDATA\tbd"` (only if you stop using tbd; it holds your pairing and the key) | keep |
 | `%APPDATA%\Microsoft\Windows\Recent*` | noise (host) | Windows "recent items" | none (not ours) | noise |
