@@ -35,6 +35,21 @@ Paths are globs; `~` is the WSL home directory, `%VAR%` a Windows environment va
 | `/var/tmp/systemd-private-*` | noise (system) | the same, under `/var/tmp` | none (not ours) | noise |
 | `/run/user/*/systemd/user/tbd-test-*` | transient (tmpfs) | Linux install round-trip test: `systemctl --user --runtime link/enable` of a never-started unit; removed by the test, gone at reboot anyway | `systemctl --user --runtime disable tbd-test-<id>.service; systemctl --user daemon-reload` | noise |
 | `schtasks:\tbd-test-*` | Windows task | install/uninstall round-trip test (BRIEF §1.5/§7): created and deleted in the same test | `schtasks /delete /tn tbd-test-<id> /f` | noise |
+| `registry:*HKEY_CURRENT_USER\Software\Microsoft\Edge\PreferenceMACs\tbd*` | registry (ours) | Host Edge mirrors the preference MACs of our profile `tbd` here, whatever `--user-data-dir` says (D14) | `scripts/win/clean-edge-registry.sh` | run |
+| `registry:*HKEY_CURRENT_USER\Software\Microsoft\Edge\PrefsEnclave*` | registry (ours) | Host Edge adds one `ev_<hash>` value per profile path it opens; the script deletes the values that were not in the baseline | `scripts/win/clean-edge-registry.sh` (same run as above) | noise |
+| `registry:*HKEY_CURRENT_USER\Software\Microsoft\Edge\PreferenceMACs\Default*` | registry (Edge) | Overwritten once by the first `test-win` run, before the profile got its own name (D14). Report-only copy of the user's Edge profile MACs (Chromium uses it for metrics, not enforcement); the user's Edge rewrites it on its next start | none | noise |
+| `registry:*HKEY_CURRENT_USER\Software\Microsoft\Edge\BLBeacon*` | registry (Edge) | Edge's launch beacon, written by every msedge.exe start (shared with the user's Edge) | none (shared) | noise |
+| `registry:*HKEY_CURRENT_USER\Software\Microsoft\Edge\ElfBeacon*` | registry (Edge) | Edge's early-launch beacon, same | none (shared) | noise |
+| `registry:*HKEY_CURRENT_USER\Software\Microsoft\Edge\StabilityMetrics*` | registry (Edge) | `exited_cleanly` flag, written at every start/exit (shared) | none (shared) | noise |
+| `registry:*HKEY_CURRENT_USER\Software\Microsoft\EdgeUpdate*` | registry (Edge) | msedge.exe records `lastrun`/metrics ids for Edge Update at every start; EdgeUpdate's own scheduled tasks write here too (shared) | none (shared) | noise |
+| `%LOCALAPPDATA%\Microsoft\OneAuth\*` | noise (Edge/host) | Microsoft identity library used by Edge (implicit sign-in) and Office; touched by an msedge.exe start | none (shared) | noise |
+| `%LOCALAPPDATA%\Microsoft\Credentials\*` | noise (host) | Windows Credential Manager (WAM/TokenBroker, OneAuth) | none (not ours) | noise |
+| `%APPDATA%\Microsoft\Crypto\Keys` | noise (host) | Windows CNG/DPAPI key store (also used by Edge's OSCrypt) | none (not ours) | noise |
+| `%APPDATA%\Microsoft\Windows\Themes` | noise (host) | Windows theme/wallpaper cache | none | noise |
+| `%LOCALAPPDATA%\Microsoft\Windows\Caches` | noise (host) | Windows caches | none | noise |
+| `%LOCALAPPDATA%\Microsoft\Windows\Explorer` | noise (host) | Explorer icon/thumbnail caches | none | noise |
+| `%LOCALAPPDATA%\CEF\*` | noise (host) | a CEF-based desktop app on the host | none (not ours) | noise |
+| `%LOCALAPPDATA%\Packages\cr.sb.*` | noise (Edge) | Chromium's sandbox AppContainer profile (`cr.sb.<hash of the browser>`), created once by Edge for its sandboxed processes and shared with the user's own Edge; it pre-dates our runs, they only touch it | none (shared) | noise |
 <!-- END outside-table -->
 
 ## apt packages

@@ -282,3 +282,35 @@ Electron preload/IPC.
   `--ping-for` (10 min) or until Enter (EOF on stdin does not stop it).
 * `--home` and `--log-level` are accepted before and after the command (`tbd run --home …` is the
   service command line).
+
+## D14 — Windows host findings (step 5, measured with `check-outside-win` and single-launch experiments)
+
+* **Host Edge writes outside `--user-data-dir` (brief corrected).** One headless `msedge.exe` run with
+  a fresh profile in the sandbox and TEMP redirected still writes per-user state: the profile's
+  preference MACs under `HKCU\Software\Microsoft\Edge\PreferenceMACs\<profile name>`, one
+  `PrefsEnclave` value, `StabilityMetrics`, `BLBeacon`/`ElfBeacon`, `EdgeUpdate\ClientState` lastrun and
+  metrics ids, and it touches `%LOCALAPPDATA%\Microsoft\OneAuth` and its sandbox AppContainer profile
+  `%LOCALAPPDATA%\Packages\cr.sb.*`. With "host Edge used as is" this cannot be switched off.
+* **`--profile-directory=tbd`.** With the default profile name `Default`, the first `test-win` run
+  overwrote the MACs of the *user's own* Edge profile in the registry (a report-only copy; Chromium's
+  tracked-preference enforcement uses the Secure Preferences file, and the user's Edge rewrites it on
+  its next start). Every launch now uses the profile name `tbd`, so Edge writes a key of our own,
+  which `scripts/win/clean-edge-registry.sh` (run by `clean-outside`) deletes together with the
+  `PrefsEnclave` values that are not in the baseline. The shared bookkeeping is listed in OUTSIDE.md
+  as Edge noise.
+* **Edge's implicit sign-in is off by default.** Measured: a fresh Edge profile on Windows signs itself
+  in to the Windows account (OneAuth/WAM) and opens `edge://sync-confirmation-dialog/` — an extra page
+  target (it broke the single-page tests) and a sync-consent dialog in `tbd login`. Edge's feature
+  `msImplicitSignin` (found in msedge.dll) controls it; `--disable-features=msImplicitSignin` stops it
+  (no account in the profile, no dialog). It is added to every launch and merged into a user's own
+  `--disable-features` in `browser_args` (Chromium honours only the last occurrence of a switch).
+  `implicit_signin = true` in config.toml re-enables it for Entra-joined PCs whose Conditional Access
+  relies on Edge's OS-account SSO.
+* **Windows byte-range locks are mandatory.** The single-instance lock now covers one byte far past
+  the end of `tbd.lock`, so `tbd status` can still read the PID written at offset 0.
+* **Task Scheduler + `conhost --headless` argv verified.** An opt-in probe (`TBD_TEST_TASK_RUN=1`) ran
+  the `tbd-test-*` task once: `%SystemRoot%` was expanded and the exact argv, including an exe path and
+  a `--home` with spaces, reached the program; the task was then deleted.
+* **test-win plumbing.** Test binaries run with stdin from `/dev/null` (a Windows exe reading the
+  loop's stdin ended the loop after the first package); snapshot lists are compared after an
+  `LC_ALL=C` sort (PowerShell's ordinal sort differs from the locale's).

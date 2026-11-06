@@ -14,7 +14,8 @@ if [[ "${1:-}" == "--baseline" || ! -f "$SNAP/baseline.files.tsv" ]]; then
   winps snapshot.ps1 -OutDir "$WIN_SB\\snapshots" -Label baseline -Sandbox "$WIN_SB"
   echo "check-outside-win: baseline taken"; exit 0
 fi
-label="after-$(date +%Y%m%d-%H%M%S)"
+label="${LABEL:-after-$(date +%Y%m%d-%H%M%S)}"
+base="${BASE:-baseline}"
 winps snapshot.ps1 -OutDir "$WIN_SB\\snapshots" -Label "$label" -Sandbox "$WIN_SB"
 
 diff_out="$SNAP/$label.diff.txt"
@@ -25,13 +26,14 @@ awk -F'\t' 'FNR==NR {b[$1]=$2"\t"$3"\t"$4; next}
     for (p in a) if (!(p in b)) print "added\t" p
     for (p in b) if (!(p in a)) print "removed\t" p
     for (p in a) if ((p in b) && a[p] != b[p]) { split(a[p], x, "\t"); print (x[1]=="d" ? "touched" : "modified") "\t" p }
-  }' "$SNAP/baseline.files.tsv" "$SNAP/$label.files.tsv" | sort -t$'\t' -k2 > "$diff_out"
-if [[ -f "$SNAP/baseline.reg.tsv" ]]; then
-  comm -13 "$SNAP/baseline.reg.tsv" "$SNAP/$label.reg.tsv" | sed 's/^/reg-added\tregistry:/' >> "$diff_out" || true
-  comm -23 "$SNAP/baseline.reg.tsv" "$SNAP/$label.reg.tsv" | sed 's/^/reg-removed\tregistry:/' >> "$diff_out" || true
+  }' "$SNAP/$base.files.tsv" "$SNAP/$label.files.tsv" | LC_ALL=C sort -t$'\t' -k2 > "$diff_out"
+csort() { LC_ALL=C sort -u "$1"; }
+if [[ -f "$SNAP/$base.reg.tsv" ]]; then
+  LC_ALL=C comm -13 <(csort "$SNAP/$base.reg.tsv") <(csort "$SNAP/$label.reg.tsv") | sed 's/^/reg-added\tregistry:/' >> "$diff_out" || true
+  LC_ALL=C comm -23 <(csort "$SNAP/$base.reg.tsv") <(csort "$SNAP/$label.reg.tsv") | sed 's/^/reg-removed\tregistry:/' >> "$diff_out" || true
 fi
-comm -13 "$SNAP/baseline.tasks.txt" "$SNAP/$label.tasks.txt" | sed 's/^/task-added\tschtasks:/' >> "$diff_out" || true
-comm -23 "$SNAP/baseline.tasks.txt" "$SNAP/$label.tasks.txt" | sed 's/^/task-removed\tschtasks:/' >> "$diff_out" || true
+LC_ALL=C comm -13 <(csort "$SNAP/$base.tasks.txt") <(csort "$SNAP/$label.tasks.txt") | sed 's/^/task-added\tschtasks:/' >> "$diff_out" || true
+LC_ALL=C comm -23 <(csort "$SNAP/$base.tasks.txt") <(csort "$SNAP/$label.tasks.txt") | sed 's/^/task-removed\tschtasks:/' >> "$diff_out" || true
 
 # Acknowledged globs from OUTSIDE.md: %LOCALAPPDATA%\x → LOCALAPPDATA/x (backslashes → slashes).
 globs=()
@@ -57,7 +59,7 @@ while IFS=$'\t' read -r what p; do
   if [[ $ok == 1 ]]; then acked=$((acked+1)); else unacked+=( "$what	$p" ); fi
 done < "$diff_out"
 total=$(wc -l < "$diff_out")
-echo "check-outside-win: $label vs baseline: $total difference(s), $acked acknowledged in OUTSIDE.md (full diff: $diff_out)"
+echo "check-outside-win: $label vs $base: $total difference(s), $acked acknowledged in OUTSIDE.md (full diff: $diff_out)"
 if (( ${#unacked[@]} )); then
   echo "check-outside-win: FAIL — not in OUTSIDE.md:"
   printf '  %s\n' "${unacked[@]}"
