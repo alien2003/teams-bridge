@@ -219,6 +219,8 @@ From the repo root (`mise tasks` lists them); anything that is not a task runs a
 
 ## The real daemon on the dev PC
 
+**Not installed at the moment:** the dev PC was cleaned on 2026-11-07 and production runs on
+another machine the maintainer sets up. Reinstall here only when asked; then it works as follows.
 Signed in to the real account (see Rules); data dir `%LOCALAPPDATA%\tbd`, binary
 `%LOCALAPPDATA%\Programs\tbd\tbd.exe`, run from WSL as a background job.
 
