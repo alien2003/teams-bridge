@@ -37,15 +37,17 @@
     }
     return v.length > max ? out + "…" : out;
   }
+  // senderOf: the path segment of the avatar URL that is a user id. Personal Teams puts it right
+  // after /users/, work tenants after /users/<tenant>/profilepicturev2/ (measured).
   function senderOf(icon) {
     try {
-      var m = /\/users\/([^\/?#]+)/.exec(String(icon || ""));
-      if (!m) return "";
-      var id = decodeURIComponent(m[1]);
-      return /^\d{1,2}:[A-Za-z0-9._:@-]{3,200}$/.test(id) ? id : "";
-    } catch (e) {
-      return "";
-    }
+      var path = String(icon || "").split(/[?#]/)[0].split("/");
+      for (var i = 0; i < path.length; i++) {
+        var id = decodeURIComponent(path[i]);
+        if (/^\d{1,2}:[A-Za-z]+:[A-Za-z0-9._:@-]{2,200}$/.test(id)) return id;
+      }
+    } catch (e) {}
+    return "";
   }
   var CONV_RE = /\d{1,2}:[A-Za-z0-9._%:-]{3,}@[A-Za-z0-9.]+/;
   function locate(icon) {
