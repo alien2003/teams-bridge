@@ -369,3 +369,37 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   throwaway random topic with no subscribers, ciphertext under a random key. So the "2048 bytes for
   topics" sentence of the ErrorCode reference is not enforced at send time; the small-padding
   fallback (D9) stays as a safety net. Delivery of a long message to a phone is still to be seen.
+
+## D17 — Deep link: resolve the conversation from the page (measured on the real Teams)
+
+* **Measured, structure only** (masked shapes, names, counts; no text, no values), on this PC's
+  real Teams session (a personal account: the page lives on `https://teams.live.com`):
+  * Teams v2 raises every message notification with `new Notification(title, {body, icon,
+    timestamp, tag, requireInteraction, dir})` — **no `data`, an empty `tag`**. Nothing in the
+    notification names the chat, so BRIEF §5's "look in options.data and tag" finds nothing.
+  * The `icon` is the sender's avatar, `…/api/mt/beta/users/<MRI>/profilepicturev2?displayname=…`,
+    i.e. it carries the sender's id (`8:live:.cid.…`; `8:orgid:<GUID>` for work accounts).
+  * In the DOM that id occurs 4× (an element's `aria-labelledby`, a `data-person-mri`, an avatar
+    `img[src]`), every time inside a chat-list item whose `data-fui-tree-item-value` is the
+    conversation id (`19:uni01_…@thread.v2`). Scanning the DOM took 3 ms (819 elements).
+  * The page's WebSocket frames (Trouter) of the 30 s before the notification did **not** contain the
+    sender id in plain form, so a network correlator would need more decoding for less certainty.
+* **Design.** At notification time the preload resolves the conversation by reading the page: one
+  pass collects the elements that carry the sender id (each +1 for its nearest ancestor whose
+  attribute value is a whole conversation id) and every such conversation element scored by its
+  accessible name (aria-labelledby) against the notification title (equal +3, containment +2). The
+  highest score wins; ties go to the first in the list (the most recent chat). The hook reports it as
+  `conversation`; Go validates it (whole-id regex) and `DeepLink` prefers it, giving
+  `<origin>/l/chat/<id>/conversations`. Nothing is clicked, typed or navigated; the id is not
+  logged (only its masked shape).
+* **Origin.** Links are built on the origin the page actually lives on if it is the `teams_url`
+  origin or one of the well-known Teams origins (teams.microsoft.com, teams.cloud.microsoft,
+  teams.live.com), else on the `teams_url` origin; a foreign origin reported by the page is ignored.
+* **Rejected:** replaying the notification's own `onclick` (it would navigate the daemon's page and
+  mark the chat read at capture time); a WebSocket/response-body correlator (measured: the sender is
+  not visible in the frames; it would also keep message content in memory); CSS-class selectors
+  (unstable) — the resolver keys on attribute *values* that are conversation ids, not on names.
+* The info line of a capture keeps the structure-only diagnostics (tag/icon shapes, option names,
+  page origin, the DOM probe and the resolved id's shape) so the first days on the work machine
+  show whether the same structure holds for work accounts, group chats and channels. Channel posts
+  without a message id still fall back to `teams_url` (no documented channel link without groupId).

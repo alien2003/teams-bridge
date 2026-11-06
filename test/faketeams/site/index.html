@@ -9,6 +9,26 @@
     <main>
       <h1 id="shell">Fake Teams</h1>
       <p id="status">loading…</p>
+      <!-- Chat list shaped like Teams v2's (measured 2026-11-06, structure only): each chat is a
+           Fluent tree item whose data-fui-tree-item-value is the conversation id, labelled by its
+           title, around avatars that carry the participant's id. The newest chat is first. -->
+      <div role="tree" aria-label="Chats">
+        <div role="treeitem" data-fui-tree-item-value="19:uni01_projectx@thread.v2" aria-labelledby="t-projectx">
+          <div data-person-mri="8:orgid:00000000-0000-4000-8000-00000000a11c">
+            <img alt="" src="/api/mt/zz/beta/users/8:orgid:00000000-0000-4000-8000-00000000a11c/profilepicturev2?displayname=Alice" />
+          </div>
+          <span id="t-projectx">Project X</span><span>Alice: see the doc</span>
+        </div>
+        <div role="treeitem" data-fui-tree-item-value="19:uni01_alice@thread.v2" aria-labelledby="t-alice">
+          <div data-person-mri="8:orgid:00000000-0000-4000-8000-00000000a11c">
+            <img alt="" src="/api/mt/zz/beta/users/8:orgid:00000000-0000-4000-8000-00000000a11c/profilepicturev2?displayname=Alice" />
+          </div>
+          <span id="t-alice">Alice</span><span>hi</span>
+        </div>
+        <div role="treeitem" data-fui-tree-item-value="19:uni01_design@thread.v2" aria-labelledby="t-design">
+          <span id="t-design">Design team</span><span>Dave: ok</span>
+        </div>
+      </div>
     </main>
     <script src="app.js"></script>
   </body>

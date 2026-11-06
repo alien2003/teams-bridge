@@ -1,9 +1,6 @@
 package hook
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestSenderMRI(t *testing.T) {
 	for in, want := range map[string]string{
@@ -19,28 +16,49 @@ func TestSenderMRI(t *testing.T) {
 	}
 }
 
-func TestDescribeOccurrences(t *testing.T) {
-	mri := "8:orgid:1f2e3d4c-0000-1111-2222-333344445555"
-	frame := `3:::{"id":"x1","method":"POST","url":"/v4/f/abc/messaging","body":"{}","resource":{"resourceType":"NewMessage","resource":{"id":"1730900000000","conversationLink":"https://zz.ng.msg.teams.microsoft.com/v1/users/ME/conversations/19:abc@unq.gbl.spaces","from":"https://zz.ng.msg.teams.microsoft.com/v1/users/ME/contacts/` + mri + `","content":"secret text","imdisplayname":"Alice Secret"}}}`
-	got := DescribeOccurrences(frame, mri, 3)
-	if len(got) != 1 {
-		t.Fatalf("got %v", got)
-	}
-	d := got[0]
-	for _, want := range []string{"path=resource.resource.from", "keys=", "conversationLink", "conversationLink=aaaaa://", "99:aaa@aaa.aaa.aaaaaa", "parent_keys="} {
-		if !strings.Contains(d, want) {
-			t.Errorf("description lacks %q: %s", want, d)
+func TestParseConversation(t *testing.T) {
+	for in, want := range map[string]string{
+		`"19:uni01_abc@thread.v2"`: "19:uni01_abc@thread.v2",
+		`"19:a_b@unq.gbl.spaces"`:  "19:a_b@unq.gbl.spaces",
+		`"48:notes"`:               "48:notes",
+		`"19:x@thread.v2 extra"`:   "",
+		`"javascript:alert(1)"`:    "",
+		`"19:x@evil.example"`:      "",
+		`7`:                        "",
+	} {
+		ev, err := Parse(`{"kind":"notification","title":"t","conversation":` + in + `}`)
+		if in == "7" {
+			if err == nil {
+				t.Errorf("a number for conversation must be rejected")
+			}
+			continue
+		}
+		if err != nil || ev.Conversation != want {
+			t.Errorf("conversation %s → %q, %v; want %q", in, ev.Conversation, err, want)
 		}
 	}
-	for _, leak := range []string{"secret text", "Alice", "abc@unq", mri, "1730900000000"} {
-		if strings.Contains(d, leak) {
-			t.Errorf("description leaks %q: %s", leak, d)
+}
+
+func TestDeepLinkUsesResolvedConversationAndPageOrigin(t *testing.T) {
+	const teamsURL = "https://teams.microsoft.com/v2/"
+	cases := []struct {
+		name string
+		ev   Event
+		want string
+	}{
+		{"resolved chat on teams_url origin", Event{Conversation: "19:uni01_abc@thread.v2", Href: "https://teams.microsoft.com/v2/"},
+			"https://teams.microsoft.com/l/chat/19:uni01_abc@thread.v2/conversations"},
+		{"personal account: page on teams.live.com", Event{Conversation: "19:uni01_abc@thread.v2", Href: "https://teams.live.com/v2/?x"},
+			"https://teams.live.com/l/chat/19:uni01_abc@thread.v2/conversations"},
+		{"foreign page origin is ignored", Event{Conversation: "19:uni01_abc@thread.v2", Href: "https://evil.example/v2/"},
+			"https://teams.microsoft.com/l/chat/19:uni01_abc@thread.v2/conversations"},
+		{"resolved conversation beats the tag", Event{Conversation: "19:uni01_abc@thread.v2", Tag: "19:other@thread.v2"},
+			"https://teams.microsoft.com/l/chat/19:uni01_abc@thread.v2/conversations"},
+		{"nothing resolved: teams_url", Event{Href: "https://teams.live.com/v2/"}, teamsURL},
+	}
+	for _, tc := range cases {
+		if got := DeepLink(teamsURL, tc.ev); got != tc.want {
+			t.Errorf("%s: %s, want %s", tc.name, got, tc.want)
 		}
-	}
-	if DescribeOccurrences(frame, "8:orgid:other", 3) != nil {
-		t.Error("no hit expected")
-	}
-	if got := DescribeOccurrences("binary "+mri, mri, 3); len(got) != 1 || !strings.HasPrefix(got[0], "non-json") {
-		t.Errorf("non-JSON: %v", got)
 	}
 }

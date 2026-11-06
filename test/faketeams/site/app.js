@@ -63,12 +63,16 @@
   }
   reportEnv();
 
-  // 2. A window.Notification (source: window). The data carries a chat id and a message id.
+  // 2. A window.Notification (source: window), shaped as Teams v2 raises it (measured 2026-11-06):
+  //    no data, an empty tag, the sender's id only in the avatar URL. The hook resolves the chat
+  //    from the chat list above (Alice's 1:1 chat, not the group she is also in).
   notify("Alice", {
     body: "hi",
-    tag: "19:abc@thread.v2",
-    icon: "/icon.png",
-    data: { chatId: "19:abc@thread.v2", messageId: "1648741500652", from: "Alice" },
+    icon: location.origin + "/api/mt/zz/beta/users/8:orgid:00000000-0000-4000-8000-00000000a11c/profilepicturev2?displayname=Alice",
+    timestamp: Date.now(),
+    tag: "",
+    requireInteraction: false,
+    dir: "auto",
   });
 
   // 3. Unread-count title.

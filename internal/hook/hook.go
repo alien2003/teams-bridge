@@ -61,6 +61,9 @@ type Event struct {
 	Count       int             // unread count for a "title" event
 	OptionKeys  []string        // names (not values) of the notification options the page passed
 	DOMProbe    []string        // structure-only description of where the sender appears in the page
+	// Conversation is the conversation id the hook resolved from the page (chat list) for this
+	// notification; validated, "" if none.
+	Conversation string
 }
 
 // ErrTooLarge is returned by Parse for a payload larger than MaxPayloadBytes.
@@ -84,6 +87,8 @@ type wire struct {
 	OptionKeys json.RawMessage `json:"optionKeys"`
 	// DOMProbe: the preload's structure-only findings (masked shapes, tag and attribute names).
 	DOMProbe json.RawMessage `json:"domProbe"`
+	// Conversation: the conversation id the hook found in the page for this notification.
+	Conversation *string `json:"conversation"`
 }
 
 // Parse validates and decodes an untrusted binding payload. Unknown fields are ignored; invalid
@@ -136,6 +141,9 @@ func Parse(payload string) (Event, error) {
 
 	ev.OptionKeys = optionKeys(w.OptionKeys)
 	ev.DOMProbe = probeStrings(w.DOMProbe)
+	if c := clean(w.Conversation); len(c) <= 300 && conversationRE.MatchString(c) {
+		ev.Conversation = c
+	}
 
 	if strings.TrimSpace(string(w.DataError)) == "true" {
 		ev.DataDropped = true

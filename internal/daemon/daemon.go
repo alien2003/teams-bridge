@@ -12,7 +12,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/alien2003/teams-bridge/internal/browser"
@@ -82,87 +81,6 @@ type daemon struct {
 	bucket  tokenBucket            // page-originated notifications per second
 	ver     config.Version         // last version the running browser reported (CDP)
 	verDisk string                 // the on-disk version that ver was learned for
-
-	sess atomic.Pointer[browser.Session] // the current page session (nil between browser runs)
-	apis []apiCall                       // recent XHR/fetch responses, structure only (locate log)
-}
-
-// apiCall is a recent API response as the locate log shows it: host and masked path, never values.
-type apiCall struct {
-	at    time.Time
-	shape string
-}
-
-const maxAPICalls = 300
-
-func (d *daemon) recordAPI(rawURL, resourceType string) {
-	switch strings.ToLower(resourceType) {
-	case "xhr", "fetch", "eventsource":
-	default:
-		return
-	}
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return
-	}
-	shape := u.Host + " " + hook.Shape(u.Path, 80)
-	d.mu.Lock()
-	d.apis = append(d.apis, apiCall{at: time.Now(), shape: shape})
-	if len(d.apis) > maxAPICalls {
-		d.apis = d.apis[len(d.apis)-maxAPICalls:]
-	}
-	d.mu.Unlock()
-}
-
-// recentAPIs lists the distinct API call shapes since the given time (at most 20).
-func (d *daemon) recentAPIs(since time.Time) string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	seen := map[string]int{}
-	var order []string
-	for _, c := range d.apis {
-		if c.at.Before(since) {
-			continue
-		}
-		if seen[c.shape] == 0 {
-			order = append(order, c.shape)
-		}
-		seen[c.shape]++
-	}
-	if len(order) > 20 {
-		order = order[len(order)-20:]
-	}
-	for i, k := range order {
-		order[i] = fmt.Sprintf("%s ×%d", k, seen[k])
-	}
-	return strings.Join(order, " | ")
-}
-
-// locateLater logs, three seconds after a capture, where the sender of the notification shows up
-// in the page and in the page's recent WebSocket frames — structure only (key names, masked
-// shapes). It is the measurement behind the deep-link design; see docs/DECISIONS.md.
-func (d *daemon) locateLater(ev hook.Event, at time.Time) {
-	mri := hook.SenderMRI(ev.Icon)
-	time.AfterFunc(3*time.Second, func() {
-		var hits []string
-		frames, hosts := 0, ""
-		if s := d.sess.Load(); s != nil && mri != "" {
-			fr := s.RecentFrames(at.Add(-30 * time.Second))
-			frames = len(fr)
-			for _, f := range fr {
-				for _, desc := range hook.DescribeOccurrences(f.Data, mri, 3) {
-					hits = append(hits, fmt.Sprintf("%s %+dms %s", f.Host, f.At.Sub(at).Milliseconds(), desc))
-				}
-				if len(hits) >= 6 {
-					break
-				}
-			}
-			hosts = strings.Join(s.WebSocketHosts(), ",")
-		}
-		d.log.Info("locate", "sender_shape", hook.Shape(mri, 64), "dom", strings.Join(ev.DOMProbe, " | "),
-			"ws_hosts", hosts, "ws_frames_30s", frames, "ws_hits", strings.Join(hits, " | "),
-			"api_15s", d.recentAPIs(at.Add(-15*time.Second)))
-	})
 }
 
 // Page-originated notifications are rate limited: any script on the Teams page can call the
@@ -453,10 +371,10 @@ func (d *daemon) onNotification(ev hook.Event) {
 		// Structure only (letters → a, digits → 9): shows whether the tag or icon carries an id
 		// in some format DeepLink does not know yet, without logging the id itself.
 		"tag_shape", hook.Shape(ev.Tag, 96), "icon_shape", hook.Shape(ev.Icon, 160),
-		"options", strings.Join(ev.OptionKeys, ","), "page_origin", originOf(ev.Href))
+		"options", strings.Join(ev.OptionKeys, ","), "page_origin", originOf(ev.Href),
+		"conversation_shape", hook.Shape(ev.Conversation, 120), "dom", strings.Join(ev.DOMProbe, " | "))
 	d.state.update(func(s *State) { s.LastEvent = now; s.SessionOK = true })
 	d.enqueue(proto.Message{T: proto.TypeMsg, Title: ev.Title, Body: ev.Body, Tag: ev.Tag, URL: url})
-	d.locateLater(ev, now)
 }
 
 // supervise keeps a browser + session alive until ctx ends, with exponential backoff between
@@ -527,10 +445,7 @@ func (d *daemon) runBrowser(ctx context.Context, started func()) error {
 	}, browser.Handlers{
 		OnBinding:            d.onBinding,
 		OnMainFrameNavigated: d.det.MainFrameNavigated,
-		OnResponse: func(u string, status int, resourceType string) {
-			d.det.Response(u, status, resourceType)
-			d.recordAPI(u, resourceType)
-		},
+		OnResponse:           d.det.Response,
 		OnDisconnect: func(err error) {
 			select {
 			case lost <- err:
@@ -542,8 +457,6 @@ func (d *daemon) runBrowser(ctx context.Context, started func()) error {
 		return fmt.Errorf("attach: %w", err)
 	}
 	defer sess.Close()
-	d.sess.Store(sess)
-	defer d.sess.Store(nil)
 	started()
 	if actual := sess.ActualVersion(); actual.Major != 0 {
 		d.mu.Lock()

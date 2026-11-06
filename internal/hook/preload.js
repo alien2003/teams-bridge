@@ -88,6 +88,98 @@
     return out;
   }
 
+  // conversationOf finds the conversation a notification belongs to by reading the page (never
+  // writing): Teams v2 passes no conversation id with the notification, but the sender's id is in the
+  // avatar URL, and the chat list renders each chat as an element whose attribute holds the
+  // conversation id ("19:…@thread.v2", measured: Fluent's data-fui-tree-item-value) around avatars
+  // that carry the participant's id (data-person-mri, img src). One pass over the DOM collects
+  // (a) elements carrying the sender id, resolved to their nearest ancestor holding a conversation
+  // id (+1 each), and (b) every element whose whole attribute value is a conversation id, scored by
+  // its accessible name (aria-labelledby) against the notification title: equal +3, one containing
+  // the other +2 — that separates a 1:1 chat from a group with the same person, and finds groups
+  // whose item shows no avatar. Highest score wins; ties go to the first in the list (most recent).
+  // Returns "" if nothing usable is found.
+  var CONV_FULL = /^(?:\d{1,2}:[A-Za-z0-9._~%+=-]+@(?:thread\.v2|thread\.tacv2|thread\.skype|unq\.gbl\.spaces)|48:notes)$/;
+  function convAttr(el) {
+    var at = el.attributes;
+    if (!at) return "";
+    for (var k = 0; k < at.length; k++) {
+      var v = at[k].value;
+      if (v && v.length < 300 && CONV_FULL.test(v)) return v;
+    }
+    return "";
+  }
+  function convNear(el) {
+    for (var lvl = 0; el && lvl < 15; lvl++, el = el.parentElement) {
+      var c = convAttr(el);
+      if (c) return c;
+    }
+    return "";
+  }
+  // labelOf is an element's accessible name from aria-labelledby (or aria-label), normalised.
+  function labelOf(el) {
+    try {
+      var ids = String(el.getAttribute("aria-labelledby") || "").split(/\s+/), parts = [];
+      for (var i = 0; i < ids.length && i < 8; i++) {
+        var l = ids[i] && document.getElementById(ids[i]);
+        if (l) parts.push(l.textContent || "");
+      }
+      var text = parts.length ? parts.join(" ") : String(el.getAttribute("aria-label") || "");
+      return text.replace(/\s+/g, " ").trim().slice(0, 300);
+    } catch (e) {
+      return "";
+    }
+  }
+  function conversationOf(icon, title) {
+    try {
+      if (typeof document === "undefined" || !document.querySelectorAll) return "";
+      var id = senderOf(icon), enc = id ? encodeURIComponent(id) : "";
+      var t = String(title || "").replace(/\s+/g, " ").trim();
+      var score = {}, order = [], labelled = {};
+      function add(c, s) {
+        if (!c) return;
+        if (!(c in score)) {
+          score[c] = 0;
+          order.push(c);
+        }
+        score[c] += s;
+      }
+      var els = document.querySelectorAll("*");
+      var n = Math.min(els.length, 30000);
+      for (var i = 0; i < n; i++) {
+        var el = els[i], at = el.attributes;
+        if (!at) continue;
+        var item = convAttr(el);
+        if (item && t && !labelled[item]) {
+          labelled[item] = true;
+          var label = labelOf(el);
+          if (label.length >= 2) {
+            if (label === t) add(item, 3);
+            else if (t.indexOf(label) >= 0 || label.indexOf(t) >= 0) add(item, 2);
+          }
+        }
+        if (!id) continue;
+        for (var j = 0; j < at.length; j++) {
+          var v = at[j].value;
+          if (v && (v.indexOf(id) >= 0 || v.indexOf(enc) >= 0)) {
+            add(convNear(el), 1);
+            break;
+          }
+        }
+      }
+      var best = "", bestScore = 0;
+      for (var m = 0; m < order.length; m++) {
+        if (score[order[m]] > bestScore) {
+          best = order[m];
+          bestScore = score[order[m]];
+        }
+      }
+      return best;
+    } catch (e) {
+      return "";
+    }
+  }
+
   try {
     var g = typeof window !== "undefined" ? window : self;
     var MARK = Symbol.for("tbd.hook.installed");
@@ -211,6 +303,7 @@
           href: href(),
           optionKeys: keysOf(options),
           domProbe: locate(this.icon),
+          conversation: conversationOf(this.icon, this.title),
         });
 
         // Fire "show" asynchronously, like the real API.
@@ -303,6 +396,7 @@
             icon: options.icon != null ? String(options.icon) : "",
             href: href(),
             optionKeys: keysOf(options),
+            conversation: conversationOf(options.icon, title),
           });
           // Still call the original so the page sees normal behaviour.
           if (typeof origShow === "function") {

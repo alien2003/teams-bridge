@@ -141,7 +141,7 @@ func TestE2ENotificationsReachFCMEncrypted(t *testing.T) {
 		t.Errorf("heartbeat ts %d is not now", hb.TS)
 	}
 	alice := h.waitFor("Alice (window.Notification)", 60*time.Second, isMsg("Alice"))
-	if alice.Body != "hi" || alice.Tag != "19:abc@thread.v2" {
+	if alice.Body != "hi" || alice.Tag != "" || alice.URL != h.teams.Origin()+"/l/chat/19:uni01_alice@thread.v2/conversations" {
 		t.Errorf("Alice: %+v", alice)
 	}
 	if !strings.HasPrefix(alice.URL, h.teams.Origin()+"/") {
@@ -154,12 +154,12 @@ func TestE2ENotificationsReachFCMEncrypted(t *testing.T) {
 		}
 	}
 	// The info line carries the tag's shape and the option names, never the tag itself.
-	if logs := h.logs.String(); !strings.Contains(logs, "tag_shape=99:aaa@aaaaaa.a9") || !strings.Contains(logs, "options=body,") {
+	if logs := h.logs.String(); !strings.Contains(logs, "conversation_shape=99:aaa99_aaaaa@aaaaaa.a9") || !strings.Contains(logs, "options=body,icon,") {
 		t.Errorf("structure-only fields missing from the capture log line")
 	}
 	// BRIEF §5: titles and bodies only at debug level.
 	for _, ln := range strings.Split(h.logs.String(), "\n") {
-		if !strings.Contains(ln, "level=DEBUG") && (strings.Contains(ln, "Alice") || strings.Contains(ln, "body=hi") || strings.Contains(ln, "from sw-") || strings.Contains(ln, "19:abc@thread.v2")) {
+		if !strings.Contains(ln, "level=DEBUG") && (strings.Contains(ln, "Alice") || strings.Contains(ln, "body=hi") || strings.Contains(ln, "from sw-") || strings.Contains(ln, "19:uni01_alice") || strings.Contains(ln, "00000000a11c")) {
 			t.Errorf("notification text logged above debug level: %s", ln)
 		}
 	}

@@ -216,14 +216,19 @@ func TestE2ENotificationsAllSources(t *testing.T) {
 	const timeout = 60 * time.Second
 
 	alice := e.c.waitEvent(t, timeout, "window Notification (Alice)", isNotification(hook.SourceWindow, "Alice"))
-	if alice.transport != browser.TransportPage || alice.ev.Body != "hi" || alice.ev.Tag != "19:abc@thread.v2" ||
-		alice.ev.Href != e.srv.TeamsURL() || !strings.HasSuffix(alice.ev.Icon, "/icon.png") {
+	// Shaped like a real Teams v2 notification: no data, empty tag, the sender only in the avatar
+	// URL; the hook resolved Alice's 1:1 chat from the chat list (not the group she is also in).
+	if alice.transport != browser.TransportPage || alice.ev.Body != "hi" || alice.ev.Tag != "" || len(alice.ev.Data) != 0 ||
+		alice.ev.Href != e.srv.TeamsURL() || hook.SenderMRI(alice.ev.Icon) != "8:orgid:00000000-0000-4000-8000-00000000a11c" {
 		t.Errorf("Alice: %+v", alice)
 	}
-	if !strings.Contains(string(alice.ev.Data), `"messageId":"1648741500652"`) {
-		t.Errorf("Alice data not carried: %q", alice.ev.Data)
+	if alice.ev.Conversation != "19:uni01_alice@thread.v2" {
+		t.Errorf("resolved conversation %q, want Alice's 1:1 chat", alice.ev.Conversation)
 	}
-	wantLink := e.srv.Origin() + "/l/message/19:abc@thread.v2/1648741500652?context=%7B%22contextType%22%3A%22chat%22%7D"
+	if got := strings.Join(alice.ev.OptionKeys, ","); got != "body,icon,timestamp,tag,requireInteraction,dir" {
+		t.Errorf("option keys %q", got)
+	}
+	wantLink := e.srv.Origin() + "/l/chat/19:uni01_alice@thread.v2/conversations"
 	if got := hook.DeepLink(e.srv.TeamsURL(), alice.ev); got != wantLink {
 		t.Errorf("DeepLink(Alice) = %q, want %q", got, wantLink)
 	}

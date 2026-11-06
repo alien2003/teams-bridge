@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/alien2003/teams-bridge/internal/config"
 )
 
 // Teams conversation ids and message ids (BRIEF §5 "Deep link").
@@ -18,6 +20,8 @@ import (
 var (
 	threadIDRE  = regexp.MustCompile(`(?:19:[A-Za-z0-9._~%+=\-]+@(?:thread\.v2|thread\.tacv2|thread\.skype|unq\.gbl\.spaces)|48:notes)`)
 	messageIDRE = regexp.MustCompile(`\b[0-9]{13}\b`)
+	// conversationRE is a whole conversation id, as the hook reports it from the page.
+	conversationRE = regexp.MustCompile(`^(?:19:[A-Za-z0-9._~%+=\-]+@(?:thread\.v2|thread\.tacv2|thread\.skype|unq\.gbl\.spaces)|48:notes)$`)
 )
 
 // DeepLink builds an in-scope Teams URL for a notification, on the origin of teamsURL. It looks in
@@ -40,12 +44,22 @@ func DeepLink(teamsURL string, ev Event) string {
 	if err != nil || base.Host == "" || (base.Scheme != "https" && base.Scheme != "http") {
 		return teamsURL
 	}
+	// Build on the origin the page actually lives on when that is one of the Teams origins (Teams
+	// moves users between them; a personal account ends up on teams.live.com), never on another.
+	if o, ok := teamsOrigin(ev.Href, base); ok {
+		base = o
+	}
 
 	hay := ev.Tag
 	if len(ev.Data) > 0 {
 		hay += "\n" + string(ev.Data)
 	}
-	thread := threadIDRE.FindString(hay)
+	// The conversation the hook resolved from the page wins: Teams v2 passes no id with the
+	// notification itself (measured, docs/DECISIONS.md D17).
+	thread := ev.Conversation
+	if thread == "" {
+		thread = threadIDRE.FindString(hay)
+	}
 	if thread == "" {
 		return teamsURL
 	}
@@ -69,6 +83,24 @@ func DeepLink(teamsURL string, ev Event) string {
 	}
 	// url.URL.String escapes the path ('%' becomes %25; ':' and '@' stay, as in Microsoft's examples).
 	return out.String()
+}
+
+// teamsOrigin returns the origin of href if it is the teams_url origin or one of the well-known Teams
+// origins (config.DefaultPermissionOrigins).
+func teamsOrigin(href string, base *url.URL) (*url.URL, bool) {
+	u, err := url.Parse(href)
+	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
+		return nil, false
+	}
+	origin := strings.ToLower(u.Scheme + "://" + u.Host)
+	ok := origin == strings.ToLower(base.Scheme+"://"+base.Host)
+	for _, o := range config.DefaultPermissionOrigins {
+		ok = ok || origin == o
+	}
+	if !ok {
+		return nil, false
+	}
+	return &url.URL{Scheme: strings.ToLower(u.Scheme), Host: strings.ToLower(u.Host)}, true
 }
 
 // messageIDFromData returns the value of the first key named messageId (case-insensitive, keys

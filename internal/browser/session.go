@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
-	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -86,72 +85,6 @@ type Session struct {
 
 	workersMu sync.Mutex
 	workers   map[target.ID]struct{}
-
-	framesMu sync.Mutex
-	wsHosts  map[network.RequestID]string
-	frames   []Frame // ring of recent WebSocket text frames, bounded (see recordFrame)
-	frameSum int
-}
-
-// Frame is one WebSocket text frame the page received. Kept in memory only, for a short time, to
-// correlate a notification with the message event it came from; never logged or persisted.
-type Frame struct {
-	Host string
-	At   time.Time
-	Data string
-}
-
-// Frame buffer bounds: the newest maxFrames frames, at most maxFrameBytes each and maxFramesBytes
-// in total, none older than frameKeep.
-const (
-	maxFrames      = 300
-	maxFrameBytes  = 256 << 10
-	maxFramesBytes = 4 << 20
-	frameKeep      = 2 * time.Minute
-)
-
-func (s *Session) recordFrame(id network.RequestID, data string, now time.Time) {
-	if len(data) > maxFrameBytes {
-		data = data[:maxFrameBytes]
-	}
-	s.framesMu.Lock()
-	defer s.framesMu.Unlock()
-	f := Frame{Host: s.wsHosts[id], At: now, Data: data}
-	s.frames = append(s.frames, f)
-	s.frameSum += len(data)
-	for len(s.frames) > 0 && (len(s.frames) > maxFrames || s.frameSum > maxFramesBytes || now.Sub(s.frames[0].At) > frameKeep) {
-		s.frameSum -= len(s.frames[0].Data)
-		s.frames[0] = Frame{}
-		s.frames = s.frames[1:]
-	}
-}
-
-// RecentFrames returns the WebSocket text frames received since the given time (oldest first).
-func (s *Session) RecentFrames(since time.Time) []Frame {
-	s.framesMu.Lock()
-	defer s.framesMu.Unlock()
-	var out []Frame
-	for _, f := range s.frames {
-		if !f.At.Before(since) {
-			out = append(out, f)
-		}
-	}
-	return out
-}
-
-// WebSocketHosts lists the hosts of the WebSockets the page has opened in this session.
-func (s *Session) WebSocketHosts() []string {
-	s.framesMu.Lock()
-	defer s.framesMu.Unlock()
-	seen := map[string]bool{}
-	var out []string
-	for _, h := range s.wsHosts {
-		if !seen[h] {
-			seen[h] = true
-			out = append(out, h)
-		}
-	}
-	return out
 }
 
 // openPage connects to the browser at wsURL and attaches to its existing page target (the
@@ -267,15 +200,12 @@ func Attach(ctx context.Context, wsURL string, o SessionOptions, h Handlers) (*S
 		done:    make(chan struct{}),
 		ended:   make(chan error, 1),
 		workers: map[target.ID]struct{}{},
-		wsHosts: map[network.RequestID]string{},
 	}
 
 	// Subscribe before navigating, so no early event is lost (Events subscribes on return).
 	bindings := chromedp.Events(evCtx, runtime.BindingCalled)
 	navs := chromedp.Events(evCtx, page.FrameNavigated)
 	responses := chromedp.Events(evCtx, network.ResponseReceived)
-	wsCreated := chromedp.Events(evCtx, network.WebSocketCreated)
-	wsFrames := chromedp.Events(evCtx, network.WebSocketFrameReceived)
 	attached := chromedp.Events(evCtx, target.AttachedToTarget)
 	crashed := chromedp.Events(evCtx, inspector.TargetCrashed)
 	detached := chromedp.Events(evCtx, inspector.Detached)
@@ -337,22 +267,6 @@ func Attach(ctx context.Context, wsURL string, o SessionOptions, h Handlers) (*S
 	go pump(s, "responses", responses, func(ev network.EventResponseReceived) {
 		if ev.Response != nil && s.handler.OnResponse != nil {
 			s.handler.OnResponse(ev.Response.URL, int(ev.Response.Status), string(ev.Type))
-		}
-	})
-	go pump(s, "websockets", wsCreated, func(ev network.EventWebSocketCreated) {
-		host := ev.URL
-		if u, err := url.Parse(ev.URL); err == nil {
-			host = u.Host
-		}
-		s.framesMu.Lock()
-		if len(s.wsHosts) < 64 {
-			s.wsHosts[ev.RequestID] = host
-		}
-		s.framesMu.Unlock()
-	})
-	go pump(s, "websocket frames", wsFrames, func(ev network.EventWebSocketFrameReceived) {
-		if ev.Response != nil && ev.Response.Opcode == 1 { // text frames only
-			s.recordFrame(ev.RequestID, string(ev.Response.PayloadData), time.Now())
 		}
 	})
 	go pump(s, "attached targets", attached, s.onAttached)
