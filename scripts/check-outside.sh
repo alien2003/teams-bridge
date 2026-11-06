@@ -8,15 +8,22 @@ STAMP="$ROOT/.tmp/stamp"
 H="${REAL_HOME:-$(getent passwd "$(id -un)" | cut -d: -f6)}"
 U="$(id -u)"
 
-# Paths (prefix match) that are allowed to change. Every entry is explained in OUTSIDE.md / DECISIONS.md.
-excl=(
+# Allowed to change. Trees: the path itself and everything below it. Prefixes: raw string prefixes
+# (the agent's /tmp/claude-<x> files, shell history rotations). Every entry is explained in
+# OUTSIDE.md / DECISIONS.md D2.
+trees=(
   "$ROOT"
   "$H/.local/share/mise" "$H/.cache/mise" "$H/.config/mise" "$H/.local/state/mise"   # mise toolbox + its trust/state files
-  "$H/.claude" "$H/.claude.json" "$H/.claude.json.backup" "/tmp/claude-" "/tmp/cc-daemon-$U"  # the agent's own state (/tmp/claude-<uid>, /tmp/claude-<id>-cwd)
+  "$H/.claude"                                                                        # the agent's own state
+)
+prefixes=(
+  "$H/.claude.json" "/tmp/claude-" "/tmp/cc-daemon-$U"                                # the agent's own state
   "$H/.zsh_history" "$H/.bash_history" "$H/.histfile" "$H/.zcompdump"                 # shell history / completion dump
 )
+excl=( "${trees[@]}" "${prefixes[@]}" )
 args=()
-for e in "${excl[@]}"; do args+=( -path "$e" -prune -o -path "$e*" -prune -o ); done
+for e in "${trees[@]}"; do args+=( -path "$e" -prune -o -path "$e/*" -prune -o ); done
+for e in "${prefixes[@]}"; do args+=( -path "$e*" -prune -o ); done
 
 found="$(
   for base in "$H" /tmp /var/tmp; do
@@ -40,7 +47,7 @@ if [[ -n "$found" ]]; then
     keep=1
     for g in "${acked[@]}"; do
       # shellcheck disable=SC2053
-      [[ "$p" == $g || "$p" == $g/* ]] && { keep=0; break; }
+      [[ "$p" == $g ]] && { keep=0; break; }   # exact glob: rows that cover descendants end in *
     done
     if [[ $keep == 1 && -d "$p" && ! -L "$p" ]]; then
       for e in "${excl[@]}" "${acked[@]}"; do [[ "$e" == "$p/"* ]] && { keep=0; break; }; done

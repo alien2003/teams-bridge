@@ -5,6 +5,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/scripts/win/lib.sh"
 cd "$ROOT"
+orig_wslenv="${WSLENV:-}"
+[[ -f "$WIN_SB_UNIX/snapshots/baseline.files.tsv" ]] || "$ROOT/scripts/win/check-outside-win.sh" --baseline
 scripts/win/sync-win.sh
 run="$(date +%Y%m%d-%H%M%S)"
 logs="$WIN_SB_UNIX/logs/$run"; mkdir -p "$logs" "$WIN_SB_UNIX/tmp" "$WIN_SB_UNIX/home"
@@ -18,6 +20,7 @@ command grep -q "^TEMP=$(printf '%s' "$WIN_SB" | sed 's/\\/\\\\/g')" "$logs/env.
 
 realtemp="$(wslpath "$(cd "$WIN_SB_UNIX" && cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")/Temp"
 mapfile -t scoped_before < <(ls -1 "$realtemp" 2>/dev/null | command grep '^scoped_dir' || true)
+"$ROOT/scripts/win/edge-registry-owned.sh" before "$logs" || true
 fail=0
 while IFS= read -r -d '' exe; do
   dir="$(dirname "$exe")"; rel="${dir#"$WIN_SB_UNIX/test/"}"; log="$logs/${rel//\//_}.log"
@@ -25,7 +28,7 @@ while IFS= read -r -d '' exe; do
   if ( cd "$dir" && "./$(basename "$exe")" -test.v -test.count=1 -test.timeout=20m ) < /dev/null > "$log" 2>&1; then
     echo "  ok   ($(command grep -c '^--- PASS' "$log") passed, $(command grep -c '^--- SKIP' "$log") skipped)"
   else
-    echo "  FAIL (see $log)"; command grep -E '^(--- FAIL|panic:|FAIL)' "$log" | head -20 | sed 's/^/    /'; fail=1
+    echo "  FAIL (see $log)"; { command grep -E '^(--- FAIL|panic:|FAIL)' "$log" | head -20 | sed 's/^/    /'; } || true; fail=1
   fi
 done < <(find "$WIN_SB_UNIX/test" -name '*.test.exe' -print0 | sort -z)
 
@@ -43,5 +46,9 @@ for d in $newscoped; do
 done
 sb_scoped=$(ls -1 "$WIN_SB_UNIX/tmp" 2>/dev/null | command grep -c '^scoped_dir' || true)
 echo "test-win: $sb_scoped scoped_dir* left in the sandbox TEMP"
-"$ROOT/scripts/win/check-outside-win.sh" || fail=1
+# Record the PrefsEnclave values our browsers added during this run (clean-edge-registry deletes
+# exactly those, never the user's own).
+"$ROOT/scripts/win/edge-registry-owned.sh" after "$logs" || true
+# The snapshot must see the user's real %TEMP%, not the sandbox TEMP exported above.
+env -u TEMP -u TMP -u TBD_HOME WSLENV="$orig_wslenv" "$ROOT/scripts/win/check-outside-win.sh" || fail=1
 (( fail == 0 )) && echo "test-win: all green (logs: $WIN_SB\\logs\\$run)" || { echo "test-win: FAILED (logs: $WIN_SB\\logs\\$run)"; exit 1; }

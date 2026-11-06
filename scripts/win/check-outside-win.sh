@@ -9,10 +9,14 @@ source "$ROOT/scripts/win/lib.sh"
 mkdir -p "$WIN_SB_UNIX/scripts" "$WIN_SB_UNIX/snapshots"
 cp "$ROOT/scripts/win/snapshot.ps1" "$WIN_SB_UNIX/scripts/snapshot.ps1"
 SNAP="$WIN_SB_UNIX/snapshots"
-if [[ "${1:-}" == "--baseline" || ! -f "$SNAP/baseline.files.tsv" ]]; then
+BASE_NAME="${BASE:-baseline}"
+if [[ "${1:-}" == "--baseline" ]]; then
   [[ -f "$SNAP/baseline.files.tsv" ]] && { echo "check-outside-win: baseline already exists, refusing to overwrite" >&2; exit 2; }
   winps snapshot.ps1 -OutDir "$WIN_SB\\snapshots" -Label baseline -Sandbox "$WIN_SB"
   echo "check-outside-win: baseline taken"; exit 0
+fi
+if [[ ! -f "$SNAP/$BASE_NAME.files.tsv" ]]; then
+  echo "check-outside-win: no snapshot '$BASE_NAME' — take the baseline with --baseline before any host action" >&2; exit 2
 fi
 label="${LABEL:-after-$(date +%Y%m%d-%H%M%S)}"
 base="${BASE:-baseline}"
@@ -51,8 +55,10 @@ while IFS=$'\t' read -r what p; do
   q="${p//\\//}"
   [[ "$q" == LOCALAPPDATA/Temp || "$q" == LOCALAPPDATA/Temp/* ]] && q="TEMP${q#LOCALAPPDATA/Temp}"
   ok=0
+  # A tbd-test-* task that still exists after a run was not deleted by its test: always a failure.
+  if [[ "$what" == task-added && "$q" == schtasks:/tbd-test-* ]]; then unacked+=( "$what	$p" ); continue; fi
   for g in "${globs[@]}"; do
-    [[ "$q" == $g || "$q" == $g/* ]] && { ok=1; break; }
+    [[ "$q" == $g ]] && { ok=1; break; }   # exact glob: rows that cover descendants end in *
     # a directory whose mtime changed only because an acknowledged child changed
     [[ "$what" == touched && "${g,,}" == "${q,,}/"* ]] && { ok=1; break; }
   done

@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 patterns=(
-  '-----BEGIN ([A-Z]+ )?PRIVATE KEY-----'   # secrets-check: allow
+  '-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----'   # secrets-check: allow
   '"private_key"[[:space:]]*:[[:space:]]*"-----BEGIN'
   'AIza[0-9A-Za-z_-]{35}'          # Google API key  secrets-check: allow
   'ya29\.[0-9A-Za-z_-]{20,}'       # Google OAuth access token
@@ -18,14 +18,17 @@ files=()
 while IFS= read -r -d '' f; do [[ -f "$f" ]] && files+=( "$f" ); done < <(git ls-files -co --exclude-standard -z)
 hits=0
 for p in "${patterns[@]}"; do
-  if out="$(command grep -EnI -- "$p" "${files[@]}" 2>/dev/null | command grep -v 'secrets-check: allow')"; then
-    echo "$out"; hits=1
-  fi
+  set +e
+  out="$(command grep -EnI -- "$p" "${files[@]}")"; rc=$?
+  set -e
+  (( rc > 1 )) && { echo "secrets-check: grep failed (rc=$rc) for pattern $p"; exit 2; }
+  out="$(printf '%s\n' "$out" | command grep -v 'secrets-check: allow' || true)"
+  if [[ -n "$out" ]]; then echo "$out"; hits=1; fi
 done
 # Files that must never be committed, whatever their content.
 for f in "${files[@]}"; do
   case "$f" in
-    android/app/google-services.json|*.sa.json|.env.local|*.keystore|*.jks) echo "forbidden file: $f"; hits=1 ;;
+    android/app/google-services.json|*.sa.json|.env.local|*.keystore|*.jks|*.p12|*.pfx|*.pem|*.key) echo "forbidden file: $f"; hits=1 ;;
   esac
 done
 if (( hits )); then echo "secrets-check: FAIL"; exit 1; fi
