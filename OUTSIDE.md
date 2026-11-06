@@ -33,6 +33,8 @@ Paths are globs; `~` is the WSL home directory, `%VAR%` a Windows environment va
 | `%LOCALAPPDATA%\Microsoft\Windows\UsrClass.dat*` | noise (host) | Same for the HKCU\Software\Classes hive | none | noise |
 | `%LOCALAPPDATA%\Microsoft\TokenBroker\*` | noise (host) | Windows Web Account Manager token cache | none (not ours) | noise |
 | `/var/tmp/systemd-private-*` | noise (system) | the same, under `/var/tmp` | none (not ours) | noise |
+| `/run/user/*/systemd/user/tbd-test-*` | transient (tmpfs) | Linux install round-trip test: `systemctl --user --runtime link/enable` of a never-started unit; removed by the test, gone at reboot anyway | `systemctl --user --runtime disable tbd-test-<id>.service; systemctl --user daemon-reload` | noise |
+| `schtasks:\tbd-test-*` | Windows task | install/uninstall round-trip test (BRIEF §1.5/§7): created and deleted in the same test | `schtasks /delete /tn tbd-test-<id> /f` | noise |
 <!-- END outside-table -->
 
 ## apt packages

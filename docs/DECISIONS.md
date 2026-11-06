@@ -96,3 +96,189 @@ turned out to be wrong against reality, the entry says so and what was done inst
 * Browser version: `--version` on Linux. On Windows `msedge.exe --version` opens a browser window
   instead of printing, so the version comes from the version-named directory next to `msedge.exe`
   (`Application\157.0.4341.42\`); the daemon cross-checks with CDP `Browser.getVersion` after launch.
+
+## D8 — Browser, hook and fake Teams (step 3)
+
+What Ferdium taught (read in `.cache/ref/`, re-implemented, not copied): its Teams recipe overrides
+the user agent to a desktop Chrome/Edge string, because Teams web refuses or degrades unknown
+browsers; its webview preload replaces `window.Notification` with a class that forwards
+`title`/`options` to the host and keeps `onclick`/`onclose` so a click can be replayed into the page;
+badge counts come from the `(N)` prefix of `document.title`. tbd keeps the same three ideas and
+moves them to CDP: `Page.addScriptToEvaluateOnNewDocument` + `Runtime.addBinding` instead of an
+Electron preload/IPC.
+
+* **Browser-wide UA switch.** `LaunchOptions.UserAgent` → `--user-agent=<UA>` (`browser.EffectiveUserAgent`:
+  config `user_agent`, else the templated Windows Edge UA). Measured: without it the service worker's
+  main-script fetch and first requests carry `X11; Linux x86_64 … HeadlessChrome/157`; the per-target
+  CDP override cannot reach them because the worker target does not exist yet. Client hints come from
+  the per-target `userAgentMetadata`. If the version is unknown before launch, the daemon asks CDP and
+  relaunches once with the switch.
+* **UA metadata.** Brands `Microsoft Edge`, `Chromium`, GREASE `"Not=A?Brand";v="24"`; platform
+  `Windows` `19.0.0` (Windows 11 24H2/25H2), arch `x86`, bitness `64`, not mobile, no WoW64.
+  `FullVersionList` uses the Edge build for both brands (the Chromium build is not known locally).
+* **Sandbox stays on.** No default `--no-sandbox`/`--disable-dev-shm-usage` (Edge runs sandboxed in this
+  WSL). Only `--disable-gpu` is added headless on non-Windows. A container without user namespaces sets
+  `browser_args = ["--no-sandbox"]`; Launch suggests it when Edge reports "No usable sandbox".
+* **Process lifetime.** Linux: own process group + `Pdeathsig=SIGKILL`. Windows: a job object with
+  `KILL_ON_JOB_CLOSE`, so a crashed daemon cannot leave a headless Edge holding the profile lock;
+  `taskkill.exe /F /T` from System32 with `CREATE_NO_WINDOW` as fallback. `Close` waits ≤ 10 s after
+  `Browser.close`. A stale `DevToolsActivePort` is deleted before launch; stderr is read from an owned
+  pipe to EOF so the last lines (e.g. a sandbox error) are not lost.
+* **One tab.** chromedp's remote allocator opens a new tab in a new window; `openPage` attaches to the
+  browser's existing page instead (otherwise `tbd login` showed two windows and never returned).
+* **Service workers.** Only http(s) `service_worker` targets are hooked (dedicated workers inherit the
+  page override); `Runtime.addBinding("__tbd")` on the worker target, `WithDetachOnCancel` (chromedp
+  would otherwise *close* Teams' worker). A bounded in-worker queue drained every 1 s is the fallback
+  when the binding is missing. Workers are not paused at start (chromedp v0.23 has no handle on the
+  auto-attached session), so a notification a worker raises before it is hooked is missed: best effort.
+* **Transport vs source.** `OnBinding(transport, payload)`: transport is how the report arrived
+  (page/worker); the payload's `source` is page-controlled and informational only.
+* **Disconnects.** `OnDisconnect` fires once for a lost CDP connection, a crashed renderer or a detached
+  page; never for `Close`.
+* **Preload config.** Go prepends `window.__tbdConfig={"hidden":<bool>};`; the preload reads and deletes it.
+* **Untrusted payloads.** `hook.Parse` caps the payload at 64 KiB, requires an object with a known
+  `kind`, strict types, truncates title/body/tag, drops oversized icon/data (`DataDropped`), replaces
+  invalid UTF-8. preload.js keeps reports under 63 KiB and sends `dataError:true` instead of losing a
+  notification whose `data` does not serialise (cycles, BigInt).
+* **Title count.** Top-level document only; the whole `<head>` is observed; `(99+)` → 99.
+* **Deep links** (Microsoft's deep-link doc, fetched 2026-11-06): chat id + message id →
+  `/l/message/<chatId>/<messageId>?context={"contextType":"chat"}`; channel + message id →
+  `/l/message/<channelId>/<messageId>`; chat id only → `/l/chat/<chatId>/conversations`; otherwise
+  `teams_url`. Always on the `teams_url` origin. The PWA manifest is not reachable anonymously
+  (`/v2/manifest.json` is 404), so whether `/l/…` is inside the PWA scope is **unverified**.
+* **DescribeData** (info logs): ≤ 32 keys with value types/lengths, id-like keys masked; the raw data is
+  logged only at debug.
+* **Login "signed in"** = the main frame stayed on the Teams origin (not a login host) for 10 s (Teams
+  commits `/v2/` before redirecting a signed-out user). Closing earlier → `ErrNotSignedIn`. Login uses
+  the daemon's UA so Conditional Access sees the same platform.
+* **faketeams** raises Alice (window), Bob (sw-page) and Carol (sw-worker) exactly once each, reports
+  every raised notification, serves a dedicated worker and a service worker that make their own
+  requests (UA of worker traffic is asserted), a 401 mode, a redirect to `localhost` (the fake login
+  host, a different host on the same server) with a sign-in form, and `Notify()` on demand.
+  `127.0.0.1`/`localhost` are secure contexts, so service workers work over plain http.
+
+## D9 — FCM client (step 4)
+
+* JWT RS256 by hand (`kid` = `private_key_id`, `iss`/`scope`/`aud`/`iat`/`exp=iat+3600`), form POST
+  `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`; token cached until 5 min before expiry
+  (wall clock: the monotonic clock stops during suspend), one shared exchange for concurrent senders.
+* Send: `POST {fcm_endpoint}/v1/projects/{id}/messages:send`, body only from `proto.FCMRequest`.
+  401 → drop the token, retry once with a fresh one; 429 → Retry-After or 60 s; 5xx/network → backoff
+  from 10 s doubling to 60 s, 3 attempts (Google's scale-fcm guidance); 400/403/404 never retried.
+  Typed `*fcm.Error` with sentinels (`ErrUnauthenticated`, `ErrNotFound`, `ErrQuota`, …).
+* `token_uri`/`fcm_endpoint` must be https except on loopback (the mock); redirects are not followed
+  (they would resend the bearer token); `HTTPS_PROXY` is honoured. Keys, assertions, tokens, topic and
+  payload never appear in logs or errors.
+* **Possible 2048-byte topic limit.** FCM's ErrorCode reference says data may be "4096 bytes for most
+  messages, or 2048 bytes in the case of messages to topics". A 2048-padded tbd message carries 2769
+  bytes. Without credentials this cannot be verified, so the daemon sends through
+  `fcm.Client.SendMessage`, which on a 400 for a 2048-padded payload re-seals it once truncated to the
+  1024 size (same id). Receivers accept both sizes; the frozen protocol is unchanged. **To verify with
+  real credentials** (README troubleshooting).
+* `fcmtest` is independent of the client: strict JWT validation against the registered public key,
+  exact §3 body shape, Google-style error JSON, scripted 401/404/429/5xx, decryption of what it
+  receives. Service-account keys are generated at run time; none is committed.
+
+## D10 — Autostart (step 5)
+
+* The service command line is always `tbd run --home <resolved home>`: neither the systemd user manager
+  nor Task Scheduler sees the installer's `TBD_HOME`/XDG environment.
+* **Unit dir = the one the user manager searches** (its environment via `systemctl --user
+  show-environment`), not the installer's `XDG_CONFIG_HOME` — measured: the manager's UnitPath ignores
+  the mise redirect, so a unit written there would never be found.
+* **No `network-online.target`** (brief corrected): it is `not-found` in a user manager. The daemon
+  retries on its own.
+* Unit: `Type=exec`, `Restart=always`, `RestartSec=10`, `KillMode=mixed`, `TimeoutStopSec=30` (SIGTERM
+  reaches only tbd, which sends `daemon_stopping` and closes Edge itself). Install = `daemon-reload`,
+  `enable`, `restart` (a re-install picks up the new binary); uninstall = `disable --now`, remove,
+  `daemon-reload`.
+* **WSL** (brief corrected): `tbd install` prints `loginctl enable-linger`, an *unelevated* PowerShell
+  `Register-ScheduledTask` (logon trigger for the current user) that runs `conhost.exe --headless
+  wsl.exe -d <distro> --exec sleep infinity` — systemd stays the only supervisor, the brief's `wsl.exe
+  -- tbd run` would start a second daemon on the same profile — and `.wslconfig` `[general]
+  instanceIdleTimeout=-1` (`vmIdleTimeout` only applies after all distros stopped).
+* **Windows** (D5): XML task, `%SystemRoot%\System32\conhost.exe --headless "<exe>" run --home <home>
+  --log-file <home>\tbd.log` (under a headless console stderr goes nowhere; `--log-file` rotates at
+  10 MiB). RestartOnFailure count 255 (the schema maximum). Install also runs `schtasks /run`.
+* Round-trip tests: Linux uses `systemctl --user --runtime link/enable` (symlinks in tmpfs
+  `$XDG_RUNTIME_DIR`, never started, `~/.config/systemd` asserted unchanged) plus `systemd-analyze
+  verify`; Windows creates/queries/deletes `tbd-test-<random>` (action `whoami.exe`, never run;
+  existence judged by exit status so a parse failure can never leave the task behind).
+
+## D11 — Session detectors (step 5)
+
+* (1) Login navigation: a main-frame navigation to a login host (or subdomain) starts a 30 s grace
+  timer and fires only if the frame has not come back to Teams — Teams passes through
+  `login.microsoftonline.com` on every normal start (silent SSO). A Teams ⇄ login ping-pong (4 bounces
+  in 5 min) fires at once.
+* (2) 401/403 bursts: **the brief's rule** — three within 60 s from `api_hosts`, API requests only (XHR,
+  Fetch, EventSource, or `/api/` paths). The session builder had added "a 2xx from the same host clears
+  the count"; with Teams' background traffic (and the fake page's) that made the detector never fire,
+  so it was replaced by *coalescing*: failures less than 1 s apart count once, so parallel requests
+  that hit an expiring token together (then refreshed silently) are not an expiry.
+* (3) Probe (`probe.js`): main frame off Teams, on a login host, or a visible sign-in prompt →
+  expired + re-navigate (keep retrying); about:blank/chrome-error → re-navigate without alert (an
+  outage is not an expiry); 3 evaluation errors in a row → restart the browser. The sign-in heuristics
+  are conservative (Entra ID fields, account picker, "Sign in" buttons only in dialogs or sparse
+  pages; English and Russian) and were tested on 21 local pages in real Edge; **to verify against real
+  Teams** (what its own signed-out UI looks like).
+* (4) Browser lost: restart only. `browser_dead` comes from the FailureTracker after 3 failed runs in a
+  row (launch/attach error, death within 3 min, or unresponsive); backoff 2 s doubling to 5 min, ±20 %.
+* One debouncer (6 h per kind) inside the Detector and the FailureTracker; the daemon persists the
+  last alert times in `state.json` and seeds the debouncer on start, so a crash loop under
+  `Restart=always` does not re-send the same alert.
+* Heartbeat: once at start, then every `heartbeat_hours`, checked against the wall clock every minute
+  (a heartbeat goes out within a minute after resume), failed sends retried after 5 min.
+
+## D12 — Android app (step 6)
+
+* **Versions (primary sources, 2026-11-06):** AGP 9.5.1 (needs Gradle ≥ 9.6 and JDK 17 — the pins
+  work), Kotlin 2.4.21 via AGP 9's built-in Kotlin, compileSdk 37.2 / targetSdk 37 / build-tools
+  37.0.0, minSdk 28, Firebase BoM 35.1.0 + google-services 4.5.0, zxing-android-embedded 4.3.0 (last
+  release 2021, a maintenance risk), work-runtime 2.12.0, Material 1.14.0; test-only JUnit 4.13.2 and
+  org.json (android.jar's org.json is a stub on the JVM). cmdline-tools 22.0, SHA-256 and SHA-1 checked.
+* **Brief corrected: no `ANDROID_SDK_HOME`.** AGP 9.5 fails when it equals `ANDROID_USER_HOME` (the
+  deprecated variable names the *parent* of `.android`). Removed from `mise.toml`; the Android
+  scripts also unset it defensively.
+* No Kotlin daemon (`in-process`), no KGP metrics, AGP analytics opted out, no SDK auto-download, no
+  Gradle JDK auto-provisioning; `-Duser.home` was not needed (check-outside clean).
+* **Debug APK size:** unminified 19.7 MB (Material/AppCompat, WorkManager+Room, Firebase); debug is
+  built with R8 shrinking (no optimisation/obfuscation, readable traces), compressed dex, English
+  resources only → 3.07 MB.
+* **Storage:** `security-crypto` is deprecated, so the secret is wrapped by a non-exportable Keystore
+  AES-256-GCM key (no user auth, so FCM can decrypt while locked); K and the topic are derived on
+  demand. No backup/device transfer. A *permanently* lost key unpairs; a transient Keystore error keeps
+  the pairing and drops the message.
+* **Tap:** a no-UI, non-exported trampoline Activity opens the URL with `setPackage(chosen)` and falls
+  back to a toast + chooser on `ActivityNotFoundException` (a system-fired PendingIntent cannot be
+  caught; Android 12's trampoline ban targets services/receivers). Only absolute http(s) URLs without
+  userinfo; anything else opens `https://teams.microsoft.com/v2/`. A "System default" choice exists.
+* **Handler list:** queried for `https://teams.microsoft.com/` and `…/v2/` (a PWA scoped to `/v2/`);
+  a resolved filter with a host → "PWA", `com.microsoft.teams` → "Teams app", else "Browser".
+* **Notifications:** msg grouped per tag with a summary; alerts one per kind, ongoing + auto-cancel;
+  "Paired ✓" once per pairing. Android drops new notifications above 50 per app, so the app keeps at
+  most 40 `tbd.msg` notifications (oldest withdrawn first).
+* **QR polarity:** `tbd pair` draws light modules on the (usually dark) terminal, an inverted code;
+  the scanner runs zxing's `MIXED_SCAN` (normal + inverted). `tbd pair --invert` draws dark modules.
+* FCM: token callbacks are still the SDK default (the FID registration mode is opt-in and unverified
+  without a device); both `onNewToken` and `onRegistered` re-subscribe. Firelog delivery-metrics
+  export is disabled in the manifest.
+* The placeholder `google-services.json` uses an API key that passes Firebase's format check but not
+  the secret scanner's pattern; with `project_id` `tbd-placeholder` the app shows a banner.
+
+## D13 — Daemon integration (steps 4–5)
+
+* `internal/daemon` (not in the brief's layout) holds the wiring so that the in-process E2E tests and
+  `cmd/tbd` share it; `cmd/tbd` stays a thin CLI.
+* **Single instance:** an advisory lock on `<home>/tbd.lock` (flock / LockFileEx). Two daemons — or a
+  daemon and `tbd login` — on one profile would make Edge hand off to the other instance.
+* **state.json** (no content): last heartbeat/message/capture, unread count, session OK, last alert per
+  kind, last error; read by `tbd status`.
+* Notifications are queued (256) so CDP goroutines never block on FCM. Identical title+body+tag within
+  10 s are sent once (Teams may raise one message through both the page and the worker).
+* `run --once` sends no heartbeat and no `daemon_stopping`; exit 0 after the first delivered `msg`,
+  exit 3 on timeout. Without `--once`, a timeout or signal sends `daemon_stopping`.
+* `tbd pair` shows the existing code unless `--new`; it sends a `pair` ping every 20 s for up to
+  `--ping-for` (10 min) or until Enter (EOF on stdin does not stop it).
+* `--home` and `--log-level` are accepted before and after the command (`tbd run --home …` is the
+  service command line).
