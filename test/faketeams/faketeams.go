@@ -168,7 +168,7 @@ func (s *Server) NotifyWith(title string, options map[string]any) {
 
 // AliceIcon is the avatar URL (on origin) that carries Alice's id, as Teams v2 uses it as the icon.
 func AliceIcon(origin string) string {
-	return origin + "/api/mt/zz/beta/users/8:orgid:00000000-0000-4000-8000-00000000a11c/profilepicturev2?displayname=Alice"
+	return origin + "/api/mt/part/zz-01/beta/users/00000000-1111-4222-8333-000000000000/profilepicturev2/8:orgid:00000000-0000-4000-8000-00000000a11c?displayname=Alice"
 }
 
 // Reset clears recorded requests and reports, queued notifications and the expiry simulations, so

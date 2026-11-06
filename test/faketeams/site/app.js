@@ -64,11 +64,11 @@
   reportEnv();
 
   // 2. A window.Notification (source: window), shaped as Teams v2 raises it (measured 2026-11-06):
-  //    no data, an empty tag, the sender's id only in the avatar URL. The hook resolves the chat
+  //    no data, an empty tag, the sender's id only in the avatar URL (work-tenant layout). The hook resolves the chat
   //    from the chat list above (Alice's 1:1 chat, not the group she is also in).
   notify("Alice", {
     body: "hi",
-    icon: location.origin + "/api/mt/zz/beta/users/8:orgid:00000000-0000-4000-8000-00000000a11c/profilepicturev2?displayname=Alice",
+    icon: location.origin + "/api/mt/part/zz-01/beta/users/00000000-1111-4222-8333-000000000000/profilepicturev2/8:orgid:00000000-0000-4000-8000-00000000a11c?displayname=Alice",
     timestamp: Date.now(),
     tag: "",
     requireInteraction: false,

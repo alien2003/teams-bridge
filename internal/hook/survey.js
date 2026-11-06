@@ -5,7 +5,10 @@
 // participant id. Only counts, names and masked shapes (letters → a, digits → 9) are returned.
 (function () {
   "use strict";
-  var CONV = /^(?:\d{1,2}:[A-Za-z0-9._~%+=-]+@(?:thread\.v2|thread\.tacv2|thread\.skype|unq\.gbl\.spaces)|48:notes)$/;
+  // A conversation id inside an attribute value (Teams wraps it in prefixes); counted only on
+  // chat-list items (role treeitem/option/listitem/row), as the resolver uses them.
+  var CONV = /\d{1,2}:[A-Za-z0-9._~%+=-]+@(?:thread\.v2|thread\.tacv2|thread\.skype|unq\.gbl\.spaces)|48:notes/;
+  var LIST_ROLE = /^(?:treeitem|option|listitem|row)$/;
   function shape(v, max) {
     var out = "";
     for (var i = 0; i < v.length && i < max; i++) {
@@ -36,10 +39,11 @@
     var seen = {};
     for (var i = 0; i < out.scanned; i++) {
       var at = els[i].attributes;
-      if (!at) continue;
+      if (!at || !LIST_ROLE.test(String(els[i].getAttribute("role") || ""))) continue;
       for (var j = 0; j < at.length; j++) {
-        var v = at[j].value;
-        if (!v || v.length > 300 || !CONV.test(v) || seen[v]) continue;
+        var m = at[j].value && at[j].value.length < 600 && CONV.exec(at[j].value);
+        if (!m || seen[m[0]]) continue;
+        var v = m[0];
         seen[v] = true;
         out.items++;
         out.attrs[at[j].name] = (out.attrs[at[j].name] || 0) + 1;

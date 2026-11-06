@@ -93,28 +93,39 @@
   // conversationOf finds the conversation a notification belongs to by reading the page (never
   // writing): Teams v2 passes no conversation id with the notification, but the sender's id is in the
   // avatar URL, and the chat list renders each chat as an element whose attribute holds the
-  // conversation id ("19:…@thread.v2", measured: Fluent's data-fui-tree-item-value) around avatars
+  // conversation id (inside Fluent's data-fui-tree-item-value and the item's id, measured) around avatars
   // that carry the participant's id (data-person-mri, img src). One pass over the DOM collects
   // (a) elements carrying the sender id, resolved to their nearest ancestor holding a conversation
-  // id (+1 each), and (b) every element whose whole attribute value is a conversation id, scored by
+  // id (+1 each), and (b) every chat-list item (role treeitem/option/listitem/row carrying a
+  // conversation id in an attribute), scored by
   // its preview showing this message's text (+4: the chat that just received it — this is what
   // separates a group message from the sender's 1:1 chat when the title is the sender's name) and
   // by its accessible name (aria-labelledby) against the notification title (equal +3, one
   // containing the other +2). Highest score wins; ties go to the first in the list (most recent).
   // It runs ~600 ms after the notification, outside Teams' toast pipeline, once the list has caught up.
   // Returns "" if nothing usable is found.
-  var CONV_FULL = /^(?:\d{1,2}:[A-Za-z0-9._~%+=-]+@(?:thread\.v2|thread\.tacv2|thread\.skype|unq\.gbl\.spaces)|48:notes)$/;
+  // A conversation id inside an attribute value: Teams wraps it ("<prefix>_19:…@thread.v2" in
+  // data-fui-tree-item-value, "…_<id>" in element ids; measured in personal and work tenants).
+  var CONV_SUB = /\d{1,2}:[A-Za-z0-9._~%+=-]+@(?:thread\.v2|thread\.tacv2|thread\.skype|unq\.gbl\.spaces)|48:notes/;
+  var LIST_ROLE = /^(?:treeitem|option|listitem|row)$/;
+  // convAttr: the conversation id an element carries, preferring Fluent's tree-item value, then its
+  // id, then any attribute.
   function convAttr(el) {
     var at = el.attributes;
     if (!at) return "";
+    var pref = ["data-fui-tree-item-value", "id"];
+    for (var p = 0; p < pref.length; p++) {
+      var pv = el.getAttribute(pref[p]), pm = pv && pv.length < 600 && CONV_SUB.exec(pv);
+      if (pm) return pm[0];
+    }
     for (var k = 0; k < at.length; k++) {
-      var v = at[k].value;
-      if (v && v.length < 300 && CONV_FULL.test(v)) return v;
+      var v = at[k].value, m = v && v.length < 600 && CONV_SUB.exec(v);
+      if (m) return m[0];
     }
     return "";
   }
   function convNear(el) {
-    for (var lvl = 0; el && lvl < 15; lvl++, el = el.parentElement) {
+    for (var lvl = 0; el && lvl < 25; lvl++, el = el.parentElement) {
       var c = convAttr(el);
       if (c) return c;
     }
@@ -156,7 +167,7 @@
       for (var i = 0; i < n; i++) {
         var el = els[i], at = el.attributes;
         if (!at) continue;
-        var item = convAttr(el);
+        var item = LIST_ROLE.test(String(el.getAttribute("role") || "")) ? convAttr(el) : "";
         if (item && !labelled[item]) {
           labelled[item] = true;
           var label = labelOf(el);
