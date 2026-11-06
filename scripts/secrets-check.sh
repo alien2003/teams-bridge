@@ -25,6 +25,17 @@ for p in "${patterns[@]}"; do
   out="$(printf '%s\n' "$out" | command grep -v 'secrets-check: allow' || true)"
   if [[ -n "$out" ]]; then echo "$out"; hits=1; fi
 done
+# A local, git-ignored stop list of strings that must never enter the repository (real tenant,
+# team, channel and conversation ids and names). One string per line; never committed.
+denylist="$PWD/.local/denylist.txt"
+if [[ -s "$denylist" ]]; then
+  set +e
+  hit="$(command grep -lIF -f "$denylist" -- "${files[@]}")"; rc=$?
+  set -e
+  (( rc > 1 )) && { echo "secrets-check: grep failed on the stop list"; exit 2; }
+  if [[ -n "$hit" ]]; then echo "secrets-check: stop-list value found in:"; printf '  %s\n' $hit; hits=1; fi
+  echo "secrets-check: stop list checked ($(command grep -c . "$denylist") entries)"
+fi
 # Files that must never be committed, whatever their content.
 for f in "${files[@]}"; do
   case "$f" in
