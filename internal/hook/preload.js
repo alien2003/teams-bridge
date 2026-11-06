@@ -21,6 +21,73 @@
     }
   }
 
+  // Structure-only search of the page for the sender's id (taken from the avatar URL): which
+  // elements carry it, and does an ancestor carry an attribute that looks like a conversation id?
+  // Only tag/attribute names and masked shapes (letters → a, digits → 9) leave this function.
+  // Diagnostics for the deep-link design; never throws.
+  function shapeOf(v, max) {
+    v = String(v);
+    var out = "";
+    for (var i = 0; i < v.length && i < max; i++) {
+      var c = v.charAt(i);
+      if (/[0-9]/.test(c)) out += "9";
+      else if (/\s/.test(c)) out += " ";
+      else if (/[A-Za-z]/.test(c) || c.charCodeAt(0) > 127) out += "a";
+      else out += c;
+    }
+    return v.length > max ? out + "…" : out;
+  }
+  function senderOf(icon) {
+    try {
+      var m = /\/users\/([^\/?#]+)/.exec(String(icon || ""));
+      if (!m) return "";
+      var id = decodeURIComponent(m[1]);
+      return /^\d{1,2}:[A-Za-z0-9._:@-]{3,200}$/.test(id) ? id : "";
+    } catch (e) {
+      return "";
+    }
+  }
+  var CONV_RE = /\d{1,2}:[A-Za-z0-9._%:-]{3,}@[A-Za-z0-9.]+/;
+  function locate(icon) {
+    var out = [];
+    try {
+      var id = senderOf(icon);
+      if (!id || typeof document === "undefined" || !document.querySelectorAll) return out;
+      var enc = encodeURIComponent(id);
+      var els = document.querySelectorAll("*");
+      var n = Math.min(els.length, 30000), hits = 0, t0 = Date.now();
+      for (var i = 0; i < n; i++) {
+        var attrs = els[i].attributes;
+        if (!attrs) continue;
+        for (var j = 0; j < attrs.length; j++) {
+          var v = attrs[j].value;
+          if (!v || (v.indexOf(id) < 0 && v.indexOf(enc) < 0)) continue;
+          hits++;
+          if (out.length < 12) {
+            var found = "", a = els[i], lvl = 0;
+            while (a && a.attributes && lvl < 15 && !found) {
+              for (var k = 0; k < a.attributes.length; k++) {
+                var av = a.attributes[k].value, mm = av && CONV_RE.exec(av);
+                if (mm && mm[0].indexOf(id) < 0) {
+                  found = " conv@" + lvl + ":" + a.tagName.toLowerCase() + "[" + a.attributes[k].name + "]=" + shapeOf(mm[0], 80);
+                  break;
+                }
+              }
+              a = a.parentElement;
+              lvl++;
+            }
+            out.push(els[i].tagName.toLowerCase() + "[" + attrs[j].name + "]" + (found || " conv=none"));
+          }
+          break;
+        }
+      }
+      out.unshift("hits=" + hits + " scanned=" + n + " ms=" + (Date.now() - t0));
+    } catch (e) {
+      out.push("error");
+    }
+    return out;
+  }
+
   try {
     var g = typeof window !== "undefined" ? window : self;
     var MARK = Symbol.for("tbd.hook.installed");
@@ -143,6 +210,7 @@
           icon: this.icon,
           href: href(),
           optionKeys: keysOf(options),
+          domProbe: locate(this.icon),
         });
 
         // Fire "show" asynchronously, like the real API.
