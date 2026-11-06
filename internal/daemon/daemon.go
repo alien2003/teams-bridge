@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -370,7 +371,7 @@ func (d *daemon) onNotification(ev hook.Event) {
 		// Structure only (letters → a, digits → 9): shows whether the tag or icon carries an id
 		// in some format DeepLink does not know yet, without logging the id itself.
 		"tag_shape", hook.Shape(ev.Tag, 96), "icon_shape", hook.Shape(ev.Icon, 160),
-		"options", strings.Join(ev.OptionKeys, ","))
+		"options", strings.Join(ev.OptionKeys, ","), "page_origin", originOf(ev.Href))
 	d.state.update(func(s *State) { s.LastEvent = now; s.SessionOK = true })
 	d.enqueue(proto.Message{T: proto.TypeMsg, Title: ev.Title, Body: ev.Body, Tag: ev.Tag, URL: url})
 }
@@ -540,4 +541,13 @@ func Login(ctx context.Context, o Options) error {
 		UserAgent: browser.EffectiveUserAgent(o.Config.UserAgent, ver.Major),
 		Logger:    o.Logger,
 	})
+}
+
+// originOf is scheme://host of a URL (no path, no query), for logging which Teams domain a page is on.
+func originOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }
