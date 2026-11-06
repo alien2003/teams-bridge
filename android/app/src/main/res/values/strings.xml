@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Teams Bridge</string>
+    <string name="never">never</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- Main / Pair -->
+    <string name="menu_settings">Settings</string>
+    <string name="placeholder_banner">This build uses the placeholder google-services.json, so Firebase Cloud Messaging cannot deliver anything to it. Rebuild with the google-services.json of your Firebase project.</string>
+    <string name="pair_title">Pair with tbd</string>
+    <string name="pair_intro">On the computer that runs tbd, run <tt>tbd pair</tt>. Scan the QR code it shows, or type the code.</string>
+    <string name="pair_scan">Scan QR code</string>
+    <string name="pair_scan_prompt">Scan the QR code shown by tbd pair</string>
+    <string name="pair_scan_not_tbd">That QR code is not a tbd pairing code.</string>
+    <string name="pair_or_type">Or type the code:</string>
+    <string name="pair_code_hint">Pairing code</string>
+    <string name="pair_code_helper">26 characters: XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX</string>
+    <string name="pair_button">Pair</string>
+    <string name="pair_invalid">That is not a valid pairing code. Check it and try again.</string>
+    <string name="pair_store_failed">The secret could not be stored in the Android Keystore. Try again.</string>
+
+    <!-- Waiting for the pair ping -->
+    <string name="waiting_title">Waiting for the pair ping</string>
+    <string name="waiting_subscribing">Subscribing to the pairing topic…</string>
+    <string name="waiting_text">Subscribed. Let tbd pair finish: it sends a pair ping, and this screen moves on as soon as it arrives.</string>
+    <string name="waiting_subscribe_failed">Could not subscribe to the pairing topic yet. Check the network and retry; the app also retries every hour.</string>
+    <string name="waiting_placeholder">The code is stored, but this build has no real Firebase configuration, so it cannot subscribe.</string>
+    <string name="waiting_retry">Retry</string>
+    <string name="waiting_cancel">Cancel pairing</string>
+
+    <!-- Status -->
+    <string name="status_title">Status</string>
+    <string name="status_paired">Paired: %1$s</string>
+    <string name="status_subscribed">Topic subscription: active</string>
+    <string name="status_not_subscribed">Topic subscription: pending (retried hourly)</string>
+    <string name="status_heartbeat">Last heartbeat: %1$s</string>
+    <string name="status_message">Last message: %1$s</string>
+    <string name="status_alert">Last alert: %1$s</string>
+    <string name="watchdog_unpaired">Watchdog: off.</string>
+    <string name="watchdog_waiting">Watchdog: no heartbeat yet (%1$s since pairing).</string>
+    <string name="watchdog_ok">Watchdog: OK.</string>
+    <string name="watchdog_stale">Watchdog: nothing for %1$s.</string>
+    <string name="watchdog_job_scheduled">Checks hourly.</string>
+    <string name="watchdog_job_stopped">Hourly check is not scheduled.</string>
+    <string name="watchdog_job_unknown">Hourly check: starting.</string>
+    <string name="notifications_warning">Notifications are blocked: nothing will show. Tap to open Settings.</string>
+    <string name="open_teams">Open Teams</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_open_in">Open Teams in:</string>
+    <string name="settings_open_in_hint">Tapping a notification opens its Teams link here. A Teams PWA installed from Edge or Chrome opens as an app; other browsers open a tab.</string>
+    <string name="handler_system_default">System default</string>
+    <string name="handler_item">%1$s · %2$s</string>
+    <string name="handler_unavailable">%1$s · not installed</string>
+    <string name="handler_none">No browser can open https links on this phone.</string>
+    <string name="settings_test_open">Open Teams now</string>
+    <string name="settings_notifications">Notifications</string>
+    <string name="notifications_allowed">Notifications are allowed.</string>
+    <string name="notifications_blocked">Notifications are blocked.</string>
+    <string name="notifications_allow">Allow notifications</string>
+    <string name="notifications_settings">Notification settings</string>
+    <string name="settings_pairing">Pairing</string>
+    <string name="pairing_paired">This phone is paired with tbd.</string>
+    <string name="pairing_not_paired">Not paired.</string>
+    <string name="unpair">Unpair</string>
+    <string name="unpair_confirm_title">Unpair this phone?</string>
+    <string name="unpair_confirm_text">The pairing secret is deleted from this phone and the topic is unsubscribed. Run tbd pair again to receive notifications.</string>
+
+    <!-- Notifications -->
+    <string name="channel_msg">Teams messages</string>
+    <string name="channel_msg_desc">Microsoft Teams notifications forwarded by tbd</string>
+    <string name="channel_alert">Bridge alerts</string>
+    <string name="channel_alert_desc">Expired Teams session, browser problems, tbd stopped, no heartbeat</string>
+    <string name="default_msg_title">Microsoft Teams</string>
+    <string name="alert_session_expired">Teams session expired: run tbd login</string>
+    <string name="alert_browser_dead">tbd: the browser keeps failing</string>
+    <string name="alert_daemon_stopping">tbd stopped</string>
+    <string name="alert_generic">tbd alert</string>
+    <string name="paired_title">Paired ✓</string>
+    <string name="paired_text">tbd can reach this phone.</string>
+    <string name="watchdog_title">No heartbeat from tbd</string>
+    <plurals name="watchdog_text">
+        <item quantity="one">Nothing from tbd for %d hour. Check that it is running and online.</item>
+        <item quantity="other">Nothing from tbd for %d hours. Check that it is running and online.</item>
+    </plurals>
+    <string name="handler_missing">The app chosen in Settings cannot open this link. Pick another one.</string>
+    <string name="chooser_title">Open Teams with</string>
+    <string name="no_handler">No app can open this link.</string>
+
+    <plurals name="duration_minutes">
+        <item quantity="one">%d minute</item>
+        <item quantity="other">%d minutes</item>
+    </plurals>
+    <plurals name="duration_hours">
+        <item quantity="one">%d hour</item>
+        <item quantity="other">%d hours</item>
+    </plurals>
+    <plurals name="duration_days">
+        <item quantity="one">%d day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
+</resources>

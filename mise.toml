@@ -25,7 +25,7 @@ GOFLAGS = "-modcacherw"
 GRADLE_USER_HOME = "{{config_root}}/.xdg/gradle"
 ANDROID_HOME = "{{config_root}}/.tools/android-sdk"
 ANDROID_USER_HOME = "{{config_root}}/.xdg/android"
-ANDROID_SDK_HOME = "{{config_root}}/.xdg/android"
+# No ANDROID_SDK_HOME (BRIEF §1.1 asks for it): AGP 9.5 refuses to build when it equals ANDROID_USER_HOME.
 # HotSpot ignores TMPDIR: hsperfdata always goes to /tmp and java.io.tmpdir defaults to /tmp.
 JAVA_TOOL_OPTIONS = "-XX:-UsePerfData -Djava.io.tmpdir={{config_root}}/.tmp"
 
@@ -92,3 +92,7 @@ run = "scripts/debug-keystore.sh"
 [tasks.google-services]
 description = "Drop a structurally valid placeholder google-services.json if the real one is missing"
 run = "scripts/google-services-placeholder.sh"
+
+[tasks.device-install]
+description = "Optional: install the debug APK with the host's adb.exe (needs TBD_DEVICE_INSTALL=1 and a device)"
+run = "scripts/device-install.sh"

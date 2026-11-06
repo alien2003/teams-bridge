@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material 3; on Android 12+ TbdApp applies the wallpaper's dynamic colours. -->
+    <style name="Theme.TeamsBridge" parent="Theme.Material3.DayNight.NoActionBar" />
+</resources>
