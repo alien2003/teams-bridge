@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -58,6 +59,7 @@ type Event struct {
 	Data        json.RawMessage // notification options.data, verbatim JSON (dropped if too large)
 	DataDropped bool            // true when options.data was present but too large or not serialisable
 	Count       int             // unread count for a "title" event
+	OptionKeys  []string        // names (not values) of the notification options the page passed
 }
 
 // ErrTooLarge is returned by Parse for a payload larger than MaxPayloadBytes.
@@ -77,6 +79,8 @@ type wire struct {
 	Count  json.RawMessage `json:"count"`
 	// DataError is set by the hook when options.data could not be serialised or was too large.
 	DataError json.RawMessage `json:"dataError"`
+	// OptionKeys: names of the options object (lenient: anything but short strings is ignored).
+	OptionKeys json.RawMessage `json:"optionKeys"`
 }
 
 // Parse validates and decodes an untrusted binding payload. Unknown fields are ignored; invalid
@@ -126,6 +130,8 @@ func Parse(payload string) (Event, error) {
 	if icon := clean(w.Icon); len(icon) <= maxURLBytes {
 		ev.Icon = icon
 	}
+
+	ev.OptionKeys = optionKeys(w.OptionKeys)
 
 	if strings.TrimSpace(string(w.DataError)) == "true" {
 		ev.DataDropped = true
@@ -219,4 +225,57 @@ func firstNonSpace(s string) int {
 
 func isJSONNull(b json.RawMessage) bool {
 	return strings.TrimSpace(string(b)) == "null"
+}
+
+// optionKeys keeps at most 32 option names of at most 40 runes; anything malformed is ignored (it
+// is diagnostics, never a reason to drop a notification).
+func optionKeys(raw json.RawMessage) []string {
+	if len(raw) == 0 || isJSONNull(raw) {
+		return nil
+	}
+	var items []json.RawMessage
+	if json.Unmarshal(raw, &items) != nil {
+		return nil
+	}
+	var out []string
+	for _, it := range items {
+		var k string
+		if json.Unmarshal(it, &k) != nil {
+			continue
+		}
+		if k = capRunes(clean(&k), 40); k != "" {
+			out = append(out, k)
+		}
+		if len(out) == 32 {
+			break
+		}
+	}
+	return out
+}
+
+// Shape masks s for structure-only logging: letters become 'a', digits '9', whitespace ' ', and
+// ASCII punctuation is kept, so "19:abc@thread.v2" shows as "99:aaa@aaaaaa.a9" without revealing
+// ids, names or text. Longer than max runes, the rest is summarised as "…(+N)".
+func Shape(s string, max int) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		if n == max {
+			return b.String() + fmt.Sprintf("…(+%d)", utf8.RuneCountInString(s)-max)
+		}
+		switch {
+		case unicode.IsLetter(r):
+			b.WriteByte('a')
+		case unicode.IsDigit(r):
+			b.WriteByte('9')
+		case unicode.IsSpace(r):
+			b.WriteByte(' ')
+		case r < 0x80 && unicode.IsPunct(r) || r < 0x80 && unicode.IsSymbol(r):
+			b.WriteRune(r)
+		default:
+			b.WriteByte('?')
+		}
+		n++
+	}
+	return b.String()
 }

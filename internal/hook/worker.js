@@ -15,6 +15,16 @@
 // Re-implemented from the behaviour of Ferdium's notification shim; no code is copied.
 (function () {
   "use strict";
+
+  // Names (never values) of the options the page passed, for the daemon's structure-only info log.
+  function keysOf(o) {
+    try {
+      return Object.keys(o || {}).slice(0, 32).map(function (k) { return String(k).slice(0, 40); });
+    } catch (e) {
+      return [];
+    }
+  }
+
   try {
     var g = self;
     var MARK = Symbol.for("tbd.hook.sw.installed");
@@ -99,6 +109,7 @@
         data: options.data !== undefined ? options.data : null,
         icon: options.icon != null ? String(options.icon) : "",
         href: href(),
+        optionKeys: keysOf(options),
       });
     }
 

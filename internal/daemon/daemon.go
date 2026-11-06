@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -365,7 +366,11 @@ func (d *daemon) onNotification(ev hook.Event) {
 	}
 	url := hook.DeepLink(d.cfg.TeamsURL, ev)
 	d.log.Info("notification captured", "source", ev.Source, "title_len", len(ev.Title), "body_len", len(ev.Body),
-		"data", hook.DescribeData(ev.Data), "deep_link", url != d.cfg.TeamsURL)
+		"data", hook.DescribeData(ev.Data), "deep_link", url != d.cfg.TeamsURL,
+		// Structure only (letters → a, digits → 9): shows whether the tag or icon carries an id
+		// in some format DeepLink does not know yet, without logging the id itself.
+		"tag_shape", hook.Shape(ev.Tag, 96), "icon_shape", hook.Shape(ev.Icon, 160),
+		"options", strings.Join(ev.OptionKeys, ","))
 	d.state.update(func(s *State) { s.LastEvent = now; s.SessionOK = true })
 	d.enqueue(proto.Message{T: proto.TypeMsg, Title: ev.Title, Body: ev.Body, Tag: ev.Tag, URL: url})
 }

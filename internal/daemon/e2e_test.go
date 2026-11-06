@@ -153,9 +153,13 @@ func TestE2ENotificationsReachFCMEncrypted(t *testing.T) {
 			t.Fatal("clear text in the FCM payload")
 		}
 	}
+	// The info line carries the tag's shape and the option names, never the tag itself.
+	if logs := h.logs.String(); !strings.Contains(logs, "tag_shape=99:aaa@aaaaaa.a9") || !strings.Contains(logs, "options=body,") {
+		t.Errorf("structure-only fields missing from the capture log line")
+	}
 	// BRIEF §5: titles and bodies only at debug level.
 	for _, ln := range strings.Split(h.logs.String(), "\n") {
-		if !strings.Contains(ln, "level=DEBUG") && (strings.Contains(ln, "Alice") || strings.Contains(ln, "body=hi") || strings.Contains(ln, "from sw-")) {
+		if !strings.Contains(ln, "level=DEBUG") && (strings.Contains(ln, "Alice") || strings.Contains(ln, "body=hi") || strings.Contains(ln, "from sw-") || strings.Contains(ln, "19:abc@thread.v2")) {
 			t.Errorf("notification text logged above debug level: %s", ln)
 		}
 	}

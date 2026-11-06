@@ -217,3 +217,45 @@ func TestParseDataError(t *testing.T) {
 		t.Fatalf("dataError should mark DataDropped: %+v", ev)
 	}
 }
+
+func TestShape(t *testing.T) {
+	for _, tc := range []struct {
+		in   string
+		max  int
+		want string
+	}{
+		{"19:abc@thread.v2", 96, "99:aaa@aaaaaa.a9"},
+		{"https://x.example/v1/users/8:orgid:1f2e/profilepicture", 96, "aaaaa://a.aaaaaaa/a9/aaaaa/9:aaaaa:9a9a/aaaaaaaaaaaaaa"},
+		{"Борис Ж. 😀", 96, "aaaaa a. ?"},
+		{"abcdef", 3, "aaa…(+3)"},
+		{"", 10, ""},
+	} {
+		if got := Shape(tc.in, tc.max); got != tc.want {
+			t.Errorf("Shape(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestParseOptionKeys(t *testing.T) {
+	ev, err := Parse(`{"kind":"notification","title":"t","optionKeys":["body","tag",7,"data",{"x":1},"` + strings.Repeat("k", 60) + `"]}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(ev.OptionKeys, ","); got != "body,tag,data,"+strings.Repeat("k", 40) {
+		t.Errorf("OptionKeys = %q", got)
+	}
+	for _, bad := range []string{`"nope"`, `{"a":1}`, `null`, `[1,2]`} {
+		ev, err := Parse(`{"kind":"notification","optionKeys":` + bad + `}`)
+		if err != nil || len(ev.OptionKeys) != 0 {
+			t.Errorf("optionKeys %s: %v %v", bad, ev.OptionKeys, err)
+		}
+	}
+	many := make([]string, 50)
+	for i := range many {
+		many[i] = `"k"`
+	}
+	ev, _ = Parse(`{"kind":"notification","optionKeys":[` + strings.Join(many, ",") + `]}`)
+	if len(ev.OptionKeys) != 32 {
+		t.Errorf("%d keys kept, want 32", len(ev.OptionKeys))
+	}
+}

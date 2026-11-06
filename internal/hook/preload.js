@@ -11,6 +11,16 @@
 // is copied (licences differ; this project is 0BSD).
 (function () {
   "use strict";
+
+  // Names (never values) of the options the page passed, for the daemon's structure-only info log.
+  function keysOf(o) {
+    try {
+      return Object.keys(o || {}).slice(0, 32).map(function (k) { return String(k).slice(0, 40); });
+    } catch (e) {
+      return [];
+    }
+  }
+
   try {
     var g = typeof window !== "undefined" ? window : self;
     var MARK = Symbol.for("tbd.hook.installed");
@@ -132,6 +142,7 @@
           data: this.data,
           icon: this.icon,
           href: href(),
+          optionKeys: keysOf(options),
         });
 
         // Fire "show" asynchronously, like the real API.
@@ -223,6 +234,7 @@
             data: options.data !== undefined ? options.data : null,
             icon: options.icon != null ? String(options.icon) : "",
             href: href(),
+            optionKeys: keysOf(options),
           });
           // Still call the original so the page sees normal behaviour.
           if (typeof origShow === "function") {
