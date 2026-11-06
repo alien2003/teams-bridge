@@ -60,6 +60,7 @@ scheduled task.
 | `%TEMP%\MicrosoftEdgeUpdate.log` | noise (Edge) | Edge Update's own log | none (shared) | noise |
 | `%TEMP%\dd_*` | noise (host) | background downloader temp files of a host app | none (not ours) | noise |
 | `%LOCALAPPDATA%\CrashDumps` | noise (host) | Windows Error Reporting's local dump folder itself | none | noise |
+| `%LOCALAPPDATA%\Microsoft\Terminal Server Client\Cache*` | noise (host) | Remote Desktop client (mstsc/msrdc) bitmap cache | none (not ours) | noise |
 <!-- END outside-table -->
 
 ## apt packages

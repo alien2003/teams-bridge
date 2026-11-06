@@ -7,7 +7,7 @@ while IFS=$'\t' read -r path kind _why removal action; do
   case "$action" in
     run)
       echo "clean-outside: $path  →  $removal"
-      bash -c "$removal" || echo "clean-outside: WARNING: removal failed for $path" >&2
+      bash -c "$removal" < /dev/null || echo "clean-outside: WARNING: removal failed for $path" >&2
       ran=$((ran+1)) ;;
     print)
       echo "clean-outside: run this yourself ($kind): $removal"
