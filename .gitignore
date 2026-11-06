@@ -1,0 +1,15 @@
+/.local/
+/.tools/
+/.tmp/
+/.xdg/
+/.cache/
+/dist/
+android/app/google-services.json
+*.sa.json
+.env.local
+# Gradle / Android build outputs
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties

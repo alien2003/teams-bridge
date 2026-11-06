@@ -1,0 +1,94 @@
+# Teams Bridge — toolbox and hermetic environment.
+# Everything a tool would put in $HOME is redirected into this directory (BRIEF §1.1).
+
+[tools]
+go = "1.27.3"
+java = "temurin-17.0.21+9"
+gradle = "9.8.2"
+"go:honnef.co/go/tools/cmd/staticcheck" = "0.8.2"
+
+[env]
+_.file = ".env.local"
+TBD_HOME = "{{config_root}}/.local/tbd"
+TBD_WIN_SANDBOX = "/mnt/c/Users/user/Projects/teams-bridge"
+TMPDIR = "{{config_root}}/.tmp"
+XDG_CACHE_HOME = "{{config_root}}/.xdg/cache"
+XDG_CONFIG_HOME = "{{config_root}}/.xdg/config"
+XDG_DATA_HOME = "{{config_root}}/.xdg/data"
+XDG_STATE_HOME = "{{config_root}}/.xdg/state"
+GOPATH = "{{config_root}}/.xdg/go"
+GOMODCACHE = "{{config_root}}/.xdg/go/pkg/mod"
+GOCACHE = "{{config_root}}/.xdg/cache/go-build"
+GOENV = "{{config_root}}/.xdg/config/go/env"
+GOTOOLCHAIN = "local"
+GOFLAGS = "-modcacherw"
+GRADLE_USER_HOME = "{{config_root}}/.xdg/gradle"
+ANDROID_HOME = "{{config_root}}/.tools/android-sdk"
+ANDROID_USER_HOME = "{{config_root}}/.xdg/android"
+ANDROID_SDK_HOME = "{{config_root}}/.xdg/android"
+# HotSpot ignores TMPDIR: hsperfdata always goes to /tmp and java.io.tmpdir defaults to /tmp.
+JAVA_TOOL_OPTIONS = "-XX:-UsePerfData -Djava.io.tmpdir={{config_root}}/.tmp"
+
+[tasks.build]
+description = "Build dist/tbd, dist/tbd.exe and dist/teams-bridge-debug.apk"
+run = "scripts/build.sh"
+
+[tasks.build-go]
+description = "Build only the Go binaries"
+run = "scripts/build.sh go"
+
+[tasks.lint]
+description = "gofmt, go vet, staticcheck"
+run = "scripts/lint.sh"
+
+[tasks.test]
+description = "Lint plus every Linux test (Go unit, E2E, Android JVM unit tests)"
+run = "scripts/test.sh"
+
+[tasks.test-win]
+description = "Cross-compile and run the Go tests on the Windows host (inside TBD_WIN_SANDBOX)"
+run = "scripts/win/test-win.sh"
+
+[tasks.sync-win]
+description = "Cross-compile tbd.exe and per-package test binaries and copy them into TBD_WIN_SANDBOX"
+run = "scripts/win/sync-win.sh"
+
+[tasks.gen-vectors]
+description = "Regenerate proto/vectors.json from the Go implementation"
+run = "go run ./internal/proto/cmd/gen-vectors -o proto/vectors.json"
+
+[tasks.check-outside]
+description = "Fail if anything outside $ROOT changed since .tmp/stamp"
+run = "scripts/check-outside.sh"
+
+[tasks.check-outside-win]
+description = "Snapshot the Windows host and diff against the baseline"
+run = "scripts/win/check-outside-win.sh"
+
+[tasks.clean-outside]
+description = "Remove everything listed in OUTSIDE.md that we created; print apt removals"
+run = "scripts/clean-outside.sh"
+
+[tasks.secrets-check]
+description = "Grep the tree for private keys and tokens"
+run = "scripts/secrets-check.sh"
+
+[tasks.edge]
+description = "Download Microsoft Edge (.deb) into .tools/ and unpack it with dpkg -x"
+run = "scripts/fetch-edge.sh"
+
+[tasks.refs]
+description = "Shallow-clone the reference repositories into .cache/ref/"
+run = "scripts/fetch-refs.sh"
+
+[tasks.android-sdk]
+description = "Install a project-local Android SDK into .tools/android-sdk"
+run = "scripts/android-sdk.sh"
+
+[tasks.debug-keystore]
+description = "Generate the project-local Android debug keystore .tools/debug.keystore"
+run = "scripts/debug-keystore.sh"
+
+[tasks.google-services]
+description = "Drop a structurally valid placeholder google-services.json if the real one is missing"
+run = "scripts/google-services-placeholder.sh"
