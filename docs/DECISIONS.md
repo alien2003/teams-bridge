@@ -358,3 +358,14 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   and end the loop early — found three times (test-win, clean-outside, clean-edge-registry). Every
   `.exe` started in a loop now gets `< /dev/null`; the clean-up is verified by comparing value lists,
   not by another loop.
+
+## D16 — Real Firebase project (2026-11-06)
+
+* Project `teams-bridge` (sender <id>). `android/app/google-services.json` is the real file
+  (git-ignored); the service-account key lives in the Windows daemon's data dir
+  `%LOCALAPPDATA%\tbd\fcm.sa.json`, outside the repository, next to a minimal `config.toml`.
+* **Measured with the real credentials:** the token exchange works, and FCM v1 *accepts* a topic
+  message carrying 2769 bytes of data (the 2048-padded class) as well as a 1405-byte one — sent to a
+  throwaway random topic with no subscribers, ciphertext under a random key. So the "2048 bytes for
+  topics" sentence of the ErrorCode reference is not enforced at send time; the small-padding
+  fallback (D9) stays as a safety net. Delivery of a long message to a phone is still to be seen.

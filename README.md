@@ -97,8 +97,8 @@ Edge keeps some per-user bookkeeping in the registry no matter which profile it 
   that. On an Entra-joined Windows PC, `implicit_signin = true` in `config.toml` lets Edge sign the
   daemon's profile in with the Windows account, which some policies require (it is off by default).
 * **Long notifications.** FCM documents a 2048-byte data limit for topic messages; tbd's larger
-  padding class is 2769 bytes. If FCM rejects it, tbd resends the message shortened to the smaller
-  class automatically (logged as a warning).
+  padding class is 2769 bytes. FCM accepted such messages when tested (2026-11); should it ever
+  reject one, tbd resends it shortened to the smaller class automatically (logged as a warning).
 * **"Session expired" alert.** Stop the daemon (`systemctl --user stop tbd`, or end the task), run
   `tbd login` again, start the daemon.
 * **Latency.** FCM topic messages can take from seconds to a few minutes; high priority is requested,

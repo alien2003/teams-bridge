@@ -85,7 +85,8 @@ block, so Android always hands it to the app):
 `ttl` is `21600s` for `hb`, `3600s` for everything else. `c` is 1404 or 2768 characters. FCM
 documents 4096 bytes of data for most messages but 2048 for topic messages; if FCM rejects a
 2768-character payload with 400 INVALID_ARGUMENT, the sender re-seals the same `id` truncated to the
-1024 class (§4) and sends it again. Receivers must accept both sizes. What Google can observe: the
+1024 class (§4) and sends it again (FCM accepted 2768-character topic payloads when tested in
+2026-11, so this is a safety net). Receivers must accept both sizes. What Google can observe: the
 topic, the two possible sizes, and timing.
 
 ## 7. Receiver rules
