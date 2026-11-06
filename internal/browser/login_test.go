@@ -158,7 +158,14 @@ func TestLoginClosedBeforeSignIn(t *testing.T) {
 			OnReady: func(ws string) { ready <- ws },
 		})
 	}()
-	closeBrowser(t, <-ready)
+	select {
+	case ws := <-ready:
+		closeBrowser(t, ws)
+	case err := <-done:
+		t.Fatalf("Login returned before the browser was ready: %v", err)
+	case <-time.After(30 * time.Second):
+		t.Fatal("the browser never became ready")
+	}
 	select {
 	case err := <-done:
 		if !errors.Is(err, ErrNotSignedIn) {

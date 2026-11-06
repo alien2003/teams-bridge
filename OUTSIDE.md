@@ -36,6 +36,7 @@ scheduled task.
 | `registry:*HKEY_CURRENT_USER\Software\Microsoft\Edge\ElfBeacon*` | registry (Edge) | Edge's early-launch beacon, same | none (shared) | noise |
 | `registry:*HKEY_CURRENT_USER\Software\Microsoft\Edge\StabilityMetrics*` | registry (Edge) | `exited_cleanly` flag, written at every start/exit (shared) | none (shared) | noise |
 | `registry:*HKEY_CURRENT_USER\Software\Microsoft\EdgeUpdate*` | registry (Edge) | msedge.exe records `lastrun`/metrics ids for Edge Update at every start; EdgeUpdate's own scheduled tasks write here too (shared) | none (shared) | noise |
+| `registry:*HKEY_CURRENT_USER\Software\Microsoft\Edge\Profiles\Default*` | registry (Edge) | The user's own Edge profile `Default` (a `MUID` value appeared while the user's Edge was running; our browsers use the profile `tbd`, D14) | none (not ours) | noise |
 | `%LOCALAPPDATA%\Packages\cr.sb.*` | noise (Edge) | Chromium's sandbox AppContainer profile (`cr.sb.<hash of the browser>`), created once by Edge for its sandboxed processes and shared with the user's own Edge; it pre-dates our runs, they only touch it | none (shared) | noise |
 | `%LOCALAPPDATA%\Microsoft\OneAuth*` | noise (Edge/host) | Microsoft identity library used by Edge and Office; touched by an msedge.exe start (less since implicit sign-in is off, D14) | none (shared) | noise |
 | `%LOCALAPPDATA%\Microsoft\TokenBroker*` | noise (host) | Windows Web Account Manager token cache | none (not ours) | noise |
@@ -58,8 +59,10 @@ scheduled task.
 | `%TEMP%\notificationimages*` | noise (host) | Windows toast images | none (not ours) | noise |
 | `%TEMP%\Microsoft.PackageManagement*` | noise (host) | PowerShell's PackageManagement module cache, touched by any `powershell.exe` start (including our snapshot script) | none | noise |
 | `%TEMP%\MicrosoftEdgeUpdate.log` | noise (Edge) | Edge Update's own log | none (shared) | noise |
+| `%TEMP%\cv_debug.log` | noise (Edge) | Edge's correlation-vector log, written into the TEMP of any msedge.exe: the user's own Edge, and the real daemon's Edge before D19 gave tbd's browser a private `<home>\tmp` on Windows | none (shared; Edge recreates it) | noise |
 | `%TEMP%\dd_*` | noise (host) | background downloader temp files of a host app | none (not ours) | noise |
 | `%LOCALAPPDATA%\CrashDumps` | noise (host) | Windows Error Reporting's local dump folder itself | none | noise |
+| `%LOCALAPPDATA%\Microsoft\Edge\User Data` | noise (host) | The user's own Edge, running on the host, touches its profile folder; our browsers never use it (`--user-data-dir`) | none (not ours) | noise |
 | `%LOCALAPPDATA%\Microsoft\Terminal Server Client\Cache*` | noise (host) | Remote Desktop client (mstsc/msrdc) bitmap cache | none (not ours) | noise |
 | `%LOCALAPPDATA%\tbd*` | yours (production) | The daemon's real data dir on Windows: `config.toml`, the FCM service-account key `fcm.sa.json`, later the browser profile, `state.json`, `tbd.log`. Created on purpose for the real setup, not by tests | `Remove-Item -Recurse "$env:LOCALAPPDATA\tbd"` (only if you stop using tbd; it holds your pairing and the key) | keep |
 | `%APPDATA%\Microsoft\Windows\Recent*` | noise (host) | Windows "recent items" | none (not ours) | noise |

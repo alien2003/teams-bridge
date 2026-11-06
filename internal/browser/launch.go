@@ -104,6 +104,36 @@ func mergeDisableFeatures(extra, ours []string) []string {
 // CrashesDir is the crash-dump directory inside home.
 func CrashesDir(home string) string { return filepath.Join(home, "crashes") }
 
+// TempDir is the browser's private temp directory on Windows (TMP and TEMP point there). Chromium
+// creates scoped_dir* folders and Edge a cv_debug.log in the temp directory, and a browser that is
+// killed never removes them: without this they would pile up in the user's own %TEMP%. Launch
+// empties it first (only one browser per home runs at a time: tbd.lock). Elsewhere the browser
+// keeps the caller's TMPDIR (see browserTempKeys in launch_unix.go).
+func TempDir(home string) string { return filepath.Join(home, "tmp") }
+
+// withEnv returns env with each key set to val, replacing earlier entries (case-insensitively, as
+// Windows treats variable names).
+func withEnv(env []string, val string, keys ...string) []string {
+	out := make([]string, 0, len(env)+len(keys))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		drop := false
+		for _, k := range keys {
+			if strings.EqualFold(name, k) {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, kv)
+		}
+	}
+	for _, k := range keys {
+		out = append(out, k+"="+val)
+	}
+	return out
+}
+
 var wsLineRE = regexp.MustCompile(`DevTools listening on (ws://\S+)`)
 
 // Launch starts the browser and returns once its DevTools endpoint is known. It keeps draining the
@@ -124,6 +154,15 @@ func Launch(ctx context.Context, o LaunchOptions) (*Process, error) {
 	}
 	if err := os.MkdirAll(crashes, 0o700); err != nil {
 		return nil, fmt.Errorf("browser: crashes dir: %w", err)
+	}
+	tmp := TempDir(o.Home)
+	if len(browserTempKeys) > 0 {
+		if err := os.RemoveAll(tmp); err != nil {
+			log.Warn("could not empty the browser's temp dir", "err", err)
+		}
+		if err := os.MkdirAll(tmp, 0o700); err != nil {
+			return nil, fmt.Errorf("browser: temp dir: %w", err)
+		}
 	}
 
 	// A DevToolsActivePort left in the persistent profile by an earlier (killed or crashed) browser
@@ -162,9 +201,13 @@ func Launch(ctx context.Context, o LaunchOptions) (*Process, error) {
 	args = append(args, "about:blank")
 
 	cmd := exec.Command(o.Path, args...)
-	cmd.Env = o.Env
-	if cmd.Env == nil {
-		cmd.Env = os.Environ()
+	env := o.Env
+	if env == nil {
+		env = os.Environ()
+	}
+	cmd.Env = env
+	if len(browserTempKeys) > 0 {
+		cmd.Env = withEnv(env, tmp, browserTempKeys...)
 	}
 	configureSysProcAttr(cmd)
 

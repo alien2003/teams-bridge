@@ -20,7 +20,7 @@ func fakeBrowser(t *testing.T, body string) (path, argsFile string) {
 	dir := t.TempDir()
 	argsFile = filepath.Join(dir, "args")
 	path = filepath.Join(dir, "browser.sh")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$TBD_FAKE_ARGS\"\n" + body + "\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$TBD_FAKE_ARGS\"\nprintf '%s\\n' \"TMP=$TMP\" \"TEMP=$TEMP\" \"TMPDIR=$TMPDIR\" > \"$TBD_FAKE_ARGS.env\"\n" + body + "\n"
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -55,6 +55,16 @@ sleep 1 & wait`)
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Errorf("stale DevToolsActivePort not removed: %v", err)
+	}
+	envb, err := os.ReadFile(argsFile + ".env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "TMP=" + os.Getenv("TMP") + "\nTEMP=" + os.Getenv("TEMP") + "\nTMPDIR=" + os.Getenv("TMPDIR") + "\n"; string(envb) != want {
+		t.Errorf("browser temp env (must be inherited outside Windows):\n%s\nwant:\n%s", envb, want)
+	}
+	if _, err := os.Stat(TempDir(home)); !os.IsNotExist(err) {
+		t.Errorf("a temp dir was created outside Windows: %v", err)
 	}
 
 	b, err := os.ReadFile(argsFile)

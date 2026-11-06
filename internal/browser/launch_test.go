@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -72,6 +73,17 @@ func TestProfileAndCrashesDir(t *testing.T) {
 	}
 	if CrashesDir("/home/x") != filepath.Join("/home/x", "crashes") {
 		t.Error("CrashesDir")
+	}
+}
+
+func TestWithEnv(t *testing.T) {
+	got := withEnv([]string{"PATH=/bin", "Temp=C:\\x", "TMPDIR=/tmp", "A=TMP=1"}, "/h/tmp", "TMP", "TEMP", "TMPDIR")
+	want := []string{"PATH=/bin", "A=TMP=1", "TMP=/h/tmp", "TEMP=/h/tmp", "TMPDIR=/h/tmp"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("withEnv = %q, want %q", got, want)
+	}
+	if TempDir("/home/x") != filepath.Join("/home/x", "tmp") {
+		t.Error("TempDir")
 	}
 }
 

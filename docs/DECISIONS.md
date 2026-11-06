@@ -486,3 +486,19 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
      notification settings) and "Notification settings". The Status warning scrolls here.
   4. Unpair (with its confirmation) — only once the daemon has been heard from; while waiting, the
      waiting section's Cancel does the same. After unpairing the page shows Pair again.
+
+## D19 — Windows: the browser gets a private temp directory
+
+* **Observed** (`check-outside-win`, 2026-11-06): a `cv_debug.log` (Edge's correlation-vector log)
+  appeared in the user's `%TEMP%` right after the real daemon's Edge started; Chromium also creates
+  `scoped_dir<pid>_*` folders there, which a killed browser (job object, crash, restart loop) never
+  removes. On the production PC that would slowly litter the user's own temp directory, outside
+  `%LOCALAPPDATA%\tbd`.
+* **Decision.** On Windows `browser.Launch` points `TMP` and `TEMP` (what `GetTempPath` reads) at
+  `<home>\tmp` and empties that folder before each launch (one browser per home: `tbd.lock`). The
+  daemon's whole footprint stays inside `<home>`, so removing tbd is removing that folder.
+* **Not on Linux/macOS:** there Chromium puts its singleton socket under `TMPDIR`, and a deep
+  `TMPDIR` (a test's `<home>/tmp`) overflows the 108-byte socket path limit; Edge aborted at start
+  (measured). The browser keeps the caller's `TMPDIR` (the repo's `.tmp/` under mise; `/tmp`,
+  cleaned by the OS, in production).
+

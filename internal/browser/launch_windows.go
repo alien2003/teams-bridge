@@ -137,3 +137,7 @@ func taskkill(pid int) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: windows.CREATE_NO_WINDOW}
 	_ = cmd.Run()
 }
+
+// browserTempKeys are the variables GetTempPath reads (TMP, then TEMP): Launch points them at
+// TempDir(home).
+var browserTempKeys = []string{"TMP", "TEMP"}

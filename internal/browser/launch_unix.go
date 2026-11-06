@@ -61,3 +61,8 @@ func (t *procTree) sweep() {
 
 // release frees OS resources; a process group needs none.
 func (t *procTree) release() {}
+
+// browserTempKeys is empty: the browser keeps the caller's TMPDIR. Chromium puts its singleton
+// socket under it, and a deep TMPDIR (such as <home>/tmp in a test's temp dir) overflows the
+// 108-byte socket path limit, which makes the browser abort at start.
+var browserTempKeys []string
