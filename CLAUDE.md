@@ -3,7 +3,7 @@
 `tbd` is a Go daemon that keeps Microsoft Teams web open in a headless Edge driven over CDP, catches
 every notification the page raises and pushes it end-to-end encrypted, as an FCM topic data message,
 to the Android app **Teams Bridge** (`android/`). There is no server of ours and no reverse channel.
-`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D17) records what was decided and measured,
+`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D19) records what was decided and measured,
 and where an entry says "brief corrected", DECISIONS wins.
 
 ## Rules
