@@ -117,7 +117,7 @@ func TestLoginFlow(t *testing.T) {
 			OnReady: func(ws string) { ready <- ws }, OnSignedIn: func() { close(signedIn) },
 		})
 	}()
-	ws := <-ready
+	ws := waitReady(t, ready, done)
 	select {
 	case <-signedIn:
 	case err := <-done:
@@ -158,14 +158,7 @@ func TestLoginClosedBeforeSignIn(t *testing.T) {
 			OnReady: func(ws string) { ready <- ws },
 		})
 	}()
-	select {
-	case ws := <-ready:
-		closeBrowser(t, ws)
-	case err := <-done:
-		t.Fatalf("Login returned before the browser was ready: %v", err)
-	case <-time.After(30 * time.Second):
-		t.Fatal("the browser never became ready")
-	}
+	closeBrowser(t, waitReady(t, ready, done))
 	select {
 	case err := <-done:
 		if !errors.Is(err, ErrNotSignedIn) {
@@ -191,7 +184,7 @@ func TestLoginContextCancel(t *testing.T) {
 			OnReady: func(ws string) { ready <- ws },
 		})
 	}()
-	ws := <-ready
+	ws := waitReady(t, ready, done)
 	cancel()
 	select {
 	case err := <-done:
@@ -274,4 +267,20 @@ func TestLoginStateOtherTeamsDomain(t *testing.T) {
 	if l.signedIn() {
 		t.Fatal("an unrelated origin counts as Teams")
 	}
+}
+
+// waitReady returns the DevTools URL Login reported, or fails the test if Login returned first (the
+// browser could not start) or nothing happened in time: a bare receive would hang until the
+// package's test timeout.
+func waitReady(t *testing.T, ready <-chan string, done <-chan error) string {
+	t.Helper()
+	select {
+	case ws := <-ready:
+		return ws
+	case err := <-done:
+		t.Fatalf("Login returned before the browser was ready: %v", err)
+	case <-time.After(60 * time.Second):
+		t.Fatal("the browser never became ready")
+	}
+	return ""
 }

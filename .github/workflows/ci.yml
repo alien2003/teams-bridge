@@ -37,6 +37,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Repo-local temp dir (mise sets TMPDIR=.tmp)
+        shell: bash
+        run: mkdir -p .tmp
       - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           version: ${{ env.MISE_VERSION }}
@@ -92,6 +95,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Repo-local temp dir (mise sets TMPDIR=.tmp)
+        shell: bash
+        run: mkdir -p .tmp
       - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           version: ${{ env.MISE_VERSION }}
@@ -112,6 +118,12 @@ jobs:
         run: microsoft-edge --version # the runner's Edge; on Windows --version would open a window (D7)
       # The runner's preinstalled Edge, found the way users' machines find it (PATH on Linux,
       # Program Files on Windows). TBD_REQUIRE_BROWSER=1 turns a missing browser into a failure.
+      # Ubuntu 24.04 runners forbid unprivileged user namespaces through AppArmor, so Chromium falls
+      # back to its SUID helper, which the Edge package does not set up there, and aborts. Lifting the
+      # restriction keeps the browser's sandbox on (tbd never passes --no-sandbox).
+      - name: Allow the browser's user-namespace sandbox
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: go test
         run: mise exec -- bash scripts/test-go.sh
       - name: Upload the test log
@@ -144,6 +156,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Repo-local temp dir (mise sets TMPDIR=.tmp)
+        shell: bash
+        run: mkdir -p .tmp
       - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
         with:
           version: ${{ env.MISE_VERSION }}
