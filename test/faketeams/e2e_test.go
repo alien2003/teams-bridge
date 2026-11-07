@@ -408,9 +408,18 @@ func TestE2ELoginRedirectNavigation(t *testing.T) {
 	}); !ok {
 		t.Error("the login page was not requested from the login host")
 	}
+	// The request above can arrive before the page has been parsed: poll until the form shows up.
 	var hasInput bool
-	if err := e.sess.Evaluate(context.Background(), `!!document.querySelector('input[type=email]') && /Sign in/.test(document.body.innerText)`, &hasInput); err != nil || !hasInput {
-		t.Errorf("sign-in affordance on the login page: %v %v", hasInput, err)
+	var evalErr error
+	for deadline := time.Now().Add(15 * time.Second); ; {
+		evalErr = e.sess.Evaluate(context.Background(), `!!document.querySelector('input[type=email]') && /Sign in/.test(document.body.innerText)`, &hasInput)
+		if (evalErr == nil && hasInput) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if evalErr != nil || !hasInput {
+		t.Errorf("sign-in affordance on the login page: %v %v", hasInput, evalErr)
 	}
 
 	// A cross-site navigation is not a disconnect, and neither is Close.
