@@ -5,7 +5,7 @@ the format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 version becomes the notes of its GitHub release (`scripts/release-notes.sh`); a version that is not
 tagged yet is marked "Unreleased" and gets its date when it is tagged.
 
-## [0.1.0] - Unreleased
+## [0.1.0] - 2026-11-07
 
 The first public release.
 
