@@ -607,3 +607,66 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   `secrets-check` with `TBD_NO_DENYLIST=1`.
 * Measured on 2026-11-07, before the history rewrite: `mise run prepush-check` fails on 41 commits,
   82 findings, all of them a non-UTC timezone offset; no stop-list, pattern or email finding.
+
+## D22 — Continuous integration on GitHub Actions
+
+* **`.github/workflows/ci.yml`** runs on pushes to `main`, pull requests, by hand
+  (`workflow_dispatch`) and as a reusable workflow (`workflow_call`, for the release workflow). Four
+  jobs, each with `permissions: contents: read` under a top-level `permissions: {}`:
+  * **Lint** (Linux): `mise run lint`, `mise run lint-ci`, `mise run secrets-check` with
+    `TBD_NO_DENYLIST=1` (the stop list never leaves the dev PC; the pre-push hook of D21 applies it).
+  * **Go tests**, Linux and Windows (`ubuntu-latest`, `windows-latest`): `scripts/test-go.sh`
+    (new task `test-go`, also called by `mise run test`) builds the binary for the runner's OS and
+    runs `go test -count=1 ./...` with `TBD_REQUIRE_BROWSER=1` against the **runner's preinstalled
+    Edge**, found the way a user's machine finds it (`microsoft-edge` on `PATH`, `msedge.exe` under
+    Program Files). Windows runs the tests natively from Git Bash, not cross-compiled as in
+    `test-win`: the Go tests do not depend on the WSL sandbox (only `scripts/win/` does: `WSLENV`,
+    the sandbox TEMP, the `scoped_dir` and registry checks), so nothing is skipped for CI. The
+    usual skips stay: the windowed login on Linux without a display, the systemd round trip where
+    `systemctl --user` does not work, `TBD_TEST_TASK_RUN` off. The log `.tmp/go-test.log` is
+    uploaded when the job fails.
+  * **Android** (Linux): `scripts/test-android.sh`, then `scripts/build.sh android` with the
+    placeholder `google-services.json` and a throwaway debug key generated in the job. The debug
+    APK becomes an artifact (14 days) only on pushes to `main`.
+* Deliberately not in CI: `check-outside*` and `clean-outside` (they describe the dev PC),
+  `test-win` and `scripts/win/`, `prepush-check`, `fetch-edge` (the runners have Edge), a
+  newest-Edge job, `loginctl enable-linger`, xvfb for the windowed tests. No secrets are used.
+* **Pins.** Actions by full commit SHA with the tag in a comment: `actions/checkout` v7.0.1,
+  `actions/cache` (`restore`/`save`) v6.1.0, `actions/upload-artifact` v7.0.2, `jdx/mise-action`
+  v5.2.5. mise itself is `MISE_VERSION` = the dev PC's 2026.9.17; bump both together. No `mise.lock`.
+  The toolchain comes from `mise.toml` as on the dev PC. `mise-action` runs with `env: false`
+  (every step goes through `mise run` / `mise exec`, so `[env]` applies only there) and one cache
+  prefix per job, because each job drops the tools it does not need with `MISE_DISABLE_TOOLS`
+  (backend-prefixed names such as `go:honnef.co/go/tools/cmd/staticcheck` work there, checked with
+  mise 2026.9.17) and the action's cache key does not see that variable.
+* **Caches** (Go module and build cache, staticcheck's, Gradle's, the project-local Android SDK)
+  are restored on every run and saved only by pushes to `main`, so pull requests and tags cannot
+  write a cache that `main` or a release later restores. Checkouts use `persist-credentials: false`.
+* **Changes for CI and fresh clones.** `.gitattributes` (`* text=auto eol=lf`): a Windows checkout
+  would otherwise convert `proto/vectors.json` and the scripts to CRLF; all 190 files were LF
+  already, so nothing was renormalised. The scripts create `.tmp/` (`TMPDIR`, `java.io.tmpdir`)
+  themselves: `go vet` fails without it, and a fresh clone has none. The Android scripts also unset
+  `ANDROID_SDK_ROOT` (runners export it for their own SDK; AGP rejects two different SDK paths).
+  `mise.toml` builds `MISE_*_DIR` from `get_env`: a value already set wins, `HOME` falls back to
+  `USERPROFILE` (a native Windows process may have no `HOME`, and `{{env.HOME}}` aborted every mise
+  command there).
+* **`mise run lint-ci`** (`scripts/lint-ci.sh`): actionlint 1.7.12 (it also runs shellcheck on
+  each `run:` block), `zizmor --offline --strict-collection` 1.32.0 over `.github/` (workflows and
+  `dependabot.yml`), `bash -n` and shellcheck 0.11.0 over every tracked script; all three come from
+  mise's aqua backend (whose `mise install` verifies their sigstore attestations and so refreshes
+  `~/.cache/sigstore-rust`, an `OUTSIDE.md` row). Enabling shellcheck found 13 findings in existing scripts: two, on one line
+  of `fetch-edge.sh`, were real (it printed the missing libraries through an unquoted `echo`; now a
+  substitution), the rest are intended (literal `~/` and glob matches, unexpanded hook text,
+  variables of a sourced file, Windows backslashes) and carry a `shellcheck disable` with the reason;
+  `scripts/win/` changed only in comments.
+* **Dependabot** (`.github/dependabot.yml`): `github-actions`, `gomod` and `gradle` (`/android`,
+  no wrapper), weekly on Mondays, cooldown 7 days (30 for a major version), one grouped PR per
+  ecosystem (minor and patch for Go and Gradle), commit prefixes `ci` / `build`. Versions are
+  recorded here, so a Dependabot PR is merged together with its DECISIONS line. `mise.toml`, the
+  mise version in `ci.yml`, `buildToolsVersion` and the SDK packages of `android-sdk.sh` stay
+  manual (`mise outdated` lists the mise tools).
+* Not known before the first run on GitHub: whether Edge's sandbox starts on the Linux runner
+  (Ubuntu restricts unprivileged user namespaces; tbd does not pass `--no-sandbox`), whether the
+  Windows runner's session lets the windowed login tests and `TestBinaryScheduledTaskEnd` (a
+  scheduled task with an interactive logon) run, and whether `HOME` is set there. Fixes go into
+  separate commits.

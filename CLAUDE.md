@@ -3,7 +3,7 @@
 `tbd` is a Go daemon that keeps Microsoft Teams web open in a headless Edge driven over CDP, catches
 every notification the page raises and pushes it end-to-end encrypted, as an FCM topic data message,
 to the Android app **Teams Bridge** (`android/`). There is no server of ours and no reverse channel.
-`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D21) records what was decided and measured,
+`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D22) records what was decided and measured,
 and where an entry says "brief corrected", DECISIONS wins.
 
 ## Rules
@@ -112,9 +112,10 @@ unsure, ask.
 The maintainer works alone: commit directly on `main`, small Conventional Commits
 (`type(scope): summary`, e.g. `fix(hook): …`); routine git decisions are yours. From a forced
 `.claude/worktrees/` worktree, fast-forward `main` after each committed slice. Done means:
-1. `mise run lint` and the relevant tests pass (`mise run test` for anything beyond one package;
-   `mise run test-win` when behaviour can differ on Windows: `*_windows.go`, browser launch, paths,
-   locks, the log file, `internal/service`, `scripts/win/`).
+1. `mise run lint` (plus `mise run lint-ci` when `.github/` or a script changed) and the relevant
+   tests pass (`mise run test` for anything beyond one package; `mise run test-win` when behaviour
+   can differ on Windows: `*_windows.go`, browser launch, paths, locks, the log file,
+   `internal/service`, `scripts/win/`).
 2. After a protocol change: version bump and `mise run gen-vectors`.
 3. `mise run secrets-check` and `mise run check-outside` are clean (`check-outside-win` after host
    actions).
@@ -173,6 +174,7 @@ phone: MessagingService → decrypt + replay filter → Notifier → tap → Ope
 | `test/faketeams/` | fake Teams (`site/`) + httptest server; browser-level E2E |
 | `android/` | Gradle project, app `io.github.alien2003.teamsbridge`; `…/proto/` = Kotlin twin of `internal/proto`; no Gradle wrapper (mise's `gradle`) |
 | `proto/` | `PROTOCOL.md` + `vectors.json` (frozen, read by Go and Kotlin tests) |
+| `.github/` | `workflows/ci.yml` (lint, Go tests on Linux and Windows with the runners' Edge, Android tests + debug APK; D22), `dependabot.yml` |
 | `scripts/`, `scripts/win/` | what the mise tasks run; `win/lib.sh` = sandbox helpers; `outside-table.sh` parses the tables of OUTSIDE.md and the git-ignored OUTSIDE.local.md between their markers (keep the five columns); `secrets-lib.sh` = patterns + stop list shared by `secrets-check.sh` and `prepush-check.sh` |
 
 Git-ignored, inside the repo: `.local/` (dev `TBD_HOME=.local/tbd`, `denylist.txt`), `.tools/`
@@ -191,7 +193,9 @@ From the repo root (`mise tasks` lists them); anything that is not a task runs a
 | `mise run build` | `dist/tbd` (static), `dist/tbd.exe`, `dist/teams-bridge-debug.apk` (fails at ≥ 6 MB) |
 | `mise run build-go` | Go binaries only; one target: `mise exec -- scripts/build.sh linux\|windows\|android` |
 | `mise run lint` | gofmt, then go vet + staticcheck for GOOS linux and windows; before every commit |
-| `mise run test` | lint, `edge`, `build-go`, `go test -count=1 ./...` with `TBD_REQUIRE_BROWSER=1` (log in `.tmp/go-test.log`), Android JVM tests with warnings as errors |
+| `mise run lint-ci` | actionlint + `zizmor --offline` over `.github/`, `bash -n` + shellcheck over every script; after touching `.github/` or `scripts/` |
+| `mise run test` | lint, `edge`, `build-go`, then `test-go` and the Android JVM tests with warnings as errors |
+| `mise run test-go` | builds `dist/tbd`, then `go test -count=1 ./...` with `TBD_REQUIRE_BROWSER=1` (log in `.tmp/go-test.log`); what CI runs on Linux and, natively, on Windows |
 | `mise exec -- go test -count=1 -run TestX ./internal/hook/` | inner loop on one package |
 | `mise exec -- scripts/test-android.sh` | Android JVM tests only |
 | `mise run test-win` | cross-compiles, runs every `<pkg>.test.exe` in the sandbox, ends with `check-outside-win`; takes minutes and flashes a login window |

@@ -1,4 +1,6 @@
+# shellcheck shell=bash
 # Shared by secrets-check.sh and prepush-check.sh (sourced, not run).
+# shellcheck disable=SC2034  # the variables below are read by the scripts that source this file
 
 # Extended regexes of private keys and tokens. A line that carries the marker
 # "secrets-check: allow" is never a hit (this file's own patterns carry it where they would match).

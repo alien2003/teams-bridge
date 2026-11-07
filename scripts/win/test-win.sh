@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # BRIEF §7 "Windows parity": run every cross-compiled test binary on the host, cwd = its mirror dir,
 # TBD_HOME/TEMP/TMP inside the sandbox; then diff the host against the baseline.
+# shellcheck disable=SC2012  # ls only lists Chromium's scoped_dir<pid>_* names (plain ASCII)
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 source "$ROOT/scripts/win/lib.sh"
@@ -51,4 +52,5 @@ echo "test-win: $sb_scoped scoped_dir* left in the sandbox TEMP"
 "$ROOT/scripts/win/edge-registry-owned.sh" after "$logs" || true
 # The snapshot must see the user's real %TEMP%, not the sandbox TEMP exported above.
 env -u TEMP -u TMP -u TBD_HOME WSLENV="$orig_wslenv" "$ROOT/scripts/win/check-outside-win.sh" || fail=1
+# shellcheck disable=SC2015  # echo cannot fail here, so the || branch runs only when fail != 0
 (( fail == 0 )) && echo "test-win: all green (logs: $WIN_SB\\logs\\$run)" || { echo "test-win: FAILED (logs: $WIN_SB\\logs\\$run)"; exit 1; }

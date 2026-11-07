@@ -10,6 +10,9 @@ command -v gradle >/dev/null || die "gradle not on PATH; run through mise from $
 
 # See build-android.sh: AGP 9.5 rejects ANDROID_SDK_HOME == ANDROID_USER_HOME.
 unset ANDROID_SDK_HOME
+# CI runners export ANDROID_SDK_ROOT for their own SDK; AGP fails when it disagrees with ANDROID_HOME.
+unset ANDROID_SDK_ROOT
+mkdir -p "$ROOT/.tmp"   # TMPDIR and java.io.tmpdir (mise.toml); a fresh clone has none
 
 "$ROOT/scripts/android-sdk.sh"
 "$ROOT/scripts/debug-keystore.sh"

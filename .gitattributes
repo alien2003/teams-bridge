@@ -1,0 +1,4 @@
+# LF everywhere, also in a Windows checkout (CI): proto/vectors.json is compared byte for byte,
+# and the scripts run under bash.
+* text=auto eol=lf
+*.png binary

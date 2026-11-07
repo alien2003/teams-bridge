@@ -33,6 +33,7 @@ found="$(
 # Rows acknowledged in OUTSIDE.md (Linux paths only) are globs that are allowed to change.
 acked=()
 while IFS=$'\t' read -r path _kind _why _removal _action; do
+  # shellcheck disable=SC2088  # a literal "~/" prefix in the table, not a path to expand
   case "$path" in
     "~/"*) acked+=( "$H/${path#\~/}" ) ;;
     /*)    acked+=( "$path" ) ;;

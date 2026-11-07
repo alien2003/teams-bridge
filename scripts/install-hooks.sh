@@ -13,6 +13,7 @@ if [[ -e "$hook" ]] && ! command grep -qF "$marker" "$hook"; then
 fi
 # Literal text: no expansion here (a command substitution in it would run at install time).
 want="$marker; edit that script, then run: mise run hooks"
+# shellcheck disable=SC2016  # the $(…) and "$@" belong to the hook and must stay unexpanded
 want="$(printf '%s\n' '#!/bin/sh' "$want" \
   '# Checks the commits being pushed: stop list, secret patterns, author/committer emails, UTC offsets.' \
   'exec "$(git rev-parse --show-toplevel)/scripts/prepush-check.sh" --hook "$@"')"

@@ -6,6 +6,10 @@ go = "1.27.3"
 java = "temurin-17.0.21+9"
 gradle = "9.8.2"
 "go:honnef.co/go/tools/cmd/staticcheck" = "0.8.2"
+# Workflow and shell linters (mise run lint-ci).
+actionlint = "1.7.12"
+zizmor = "1.32.0"
+shellcheck = "0.11.0"
 
 [env]
 _.file = ".env.local"
@@ -17,10 +21,12 @@ XDG_CONFIG_HOME = "{{config_root}}/.xdg/config"
 XDG_DATA_HOME = "{{config_root}}/.xdg/data"
 XDG_STATE_HOME = "{{config_root}}/.xdg/state"
 # Pin mise's own dirs so a nested mise (inside a task) does not follow the XDG redirects above.
-MISE_DATA_DIR = "{{env.HOME}}/.local/share/mise"
-MISE_CACHE_DIR = "{{env.HOME}}/.cache/mise"
-MISE_CONFIG_DIR = "{{env.HOME}}/.config/mise"
-MISE_STATE_DIR = "{{env.HOME}}/.local/state/mise"
+# A value the caller already set wins (CI's mise-action exports MISE_DATA_DIR); HOME falls back to
+# USERPROFILE because a native Windows process (the CI runner) may have no HOME at all (D22).
+MISE_DATA_DIR = "{{ get_env(name='MISE_DATA_DIR', default=get_env(name='HOME', default=get_env(name='USERPROFILE', default='')) ~ '/.local/share/mise') }}"
+MISE_CACHE_DIR = "{{ get_env(name='MISE_CACHE_DIR', default=get_env(name='HOME', default=get_env(name='USERPROFILE', default='')) ~ '/.cache/mise') }}"
+MISE_CONFIG_DIR = "{{ get_env(name='MISE_CONFIG_DIR', default=get_env(name='HOME', default=get_env(name='USERPROFILE', default='')) ~ '/.config/mise') }}"
+MISE_STATE_DIR = "{{ get_env(name='MISE_STATE_DIR', default=get_env(name='HOME', default=get_env(name='USERPROFILE', default='')) ~ '/.local/state/mise') }}"
 GOPATH = "{{config_root}}/.xdg/go"
 GOMODCACHE = "{{config_root}}/.xdg/go/pkg/mod"
 GOCACHE = "{{config_root}}/.xdg/cache/go-build"
@@ -46,9 +52,17 @@ run = "scripts/build.sh go"
 description = "gofmt, go vet, staticcheck"
 run = "scripts/lint.sh"
 
+[tasks.lint-ci]
+description = "actionlint, zizmor --offline and shellcheck over .github/ and the scripts"
+run = "scripts/lint-ci.sh"
+
 [tasks.test]
 description = "Lint plus every Linux test (Go unit, E2E, Android JVM unit tests)"
 run = "scripts/test.sh"
+
+[tasks.test-go]
+description = "build-go, then go test ./... against dist/tbd and a real browser (TBD_REQUIRE_BROWSER=1)"
+run = "scripts/test-go.sh"
 
 [tasks.test-win]
 description = "Cross-compile and run the Go tests on the Windows host (inside TBD_WIN_SANDBOX)"

@@ -1,0 +1,52 @@
+# Dependabot (D22): weekly, after a 7-day cooldown (30 days for major versions), one grouped PR per
+# ecosystem. Versions are pinned and recorded in docs/DECISIONS.md, so a PR is a proposal: merge it
+# together with the DECISIONS line. Not covered here, updated by hand: mise.toml (go, temurin,
+# gradle, staticcheck, actionlint, zizmor, shellcheck; `mise outdated` lists them), the mise version
+# in ci.yml, buildToolsVersion and the SDK packages in scripts/android-sdk.sh.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
+
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    groups:
+      go-minor:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    commit-message:
+      prefix: build
+      include: scope
+
+  - package-ecosystem: gradle
+    directory: /android
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+      semver-major-days: 30
+    groups:
+      android-minor:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    commit-message:
+      prefix: build
+      include: scope
+    open-pull-requests-limit: 5

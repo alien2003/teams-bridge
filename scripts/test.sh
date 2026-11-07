@@ -3,11 +3,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+mkdir -p .tmp                               # TMPDIR (mise.toml); a fresh clone has none
 scripts/lint.sh
 scripts/fetch-edge.sh >/dev/null            # the E2E tests need a real browser
-scripts/build.sh go                         # cmd/tbd's binary test runs dist/tbd
-export TBD_REQUIRE_BROWSER=1 TBD_EXE="$ROOT/dist/tbd"
-go test -count=1 -timeout 15m ./... 2>&1 | tee "$ROOT/.tmp/go-test.log"
+scripts/build.sh windows                    # build-go's other half (test-go builds dist/tbd)
+scripts/test-go.sh
 if [[ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]]; then
   echo "test: NOTICE — no display in this WSL: the windowed \`tbd login\` test was skipped on Linux (it runs on Windows in test-win)"
 fi

@@ -1,0 +1,191 @@
+# CI (D22): lint, Go tests against a real browser on Linux and Windows, Android JVM tests and the
+# debug APK. Every toolchain comes from mise.toml through mise-action, as on the dev PC; each job
+# disables the tools it does not need (MISE_DISABLE_TOOLS) and keeps its own mise cache. Caches are
+# restored everywhere and written only by pushes to main. No secrets: the APK is built with the
+# placeholder google-services.json and a throwaway debug key.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # The dev PC's mise (D22); bump the two together.
+  MISE_VERSION: "2026.9.17"
+  # Caches are written only by pushes to main (pull requests and tags restore them).
+  SAVE_CACHE: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    env:
+      MISE_DISABLE_TOOLS: java,gradle
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          version: ${{ env.MISE_VERSION }}
+          cache_key_prefix: mise-v1-lint
+          cache_save: ${{ env.SAVE_CACHE }}
+          env: false
+      - name: Restore Go caches
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .xdg/go/pkg/mod
+            .xdg/cache/go-build
+            .xdg/cache/staticcheck
+          key: go-lint-${{ runner.os }}-${{ hashFiles('go.sum', 'mise.toml') }}
+          restore-keys: go-lint-${{ runner.os }}-
+      - name: gofmt, go vet, staticcheck
+        run: mise run lint
+      - name: actionlint, zizmor, shellcheck
+        run: mise run lint-ci
+      - name: Secret patterns and forbidden files (the stop list stays on the dev PC)
+        run: mise run secrets-check
+        env:
+          TBD_NO_DENYLIST: "1"
+      - name: Save Go caches
+        if: env.SAVE_CACHE == 'true' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .xdg/go/pkg/mod
+            .xdg/cache/go-build
+            .xdg/cache/staticcheck
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  go:
+    name: Go tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash # Git Bash on Windows
+    env:
+      MISE_DISABLE_TOOLS: java,gradle,go:honnef.co/go/tools/cmd/staticcheck,actionlint,zizmor,shellcheck
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          version: ${{ env.MISE_VERSION }}
+          cache_key_prefix: mise-v1-go
+          cache_save: ${{ env.SAVE_CACHE }}
+          env: false
+      - name: Restore Go caches
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .xdg/go/pkg/mod
+            .xdg/cache/go-build
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum', 'mise.toml') }}
+          restore-keys: go-test-${{ runner.os }}-
+      - name: Browser
+        if: runner.os == 'Linux'
+        run: microsoft-edge --version # the runner's Edge; on Windows --version would open a window (D7)
+      # The runner's preinstalled Edge, found the way users' machines find it (PATH on Linux,
+      # Program Files on Windows). TBD_REQUIRE_BROWSER=1 turns a missing browser into a failure.
+      - name: go test
+        run: mise exec -- bash scripts/test-go.sh
+      - name: Upload the test log
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: go-test-log-${{ runner.os }}
+          path: .tmp/go-test.log
+          include-hidden-files: true # .tmp/ is a dot directory
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Save Go caches
+        if: env.SAVE_CACHE == 'true' && steps.go-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .xdg/go/pkg/mod
+            .xdg/cache/go-build
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  android:
+    name: Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      MISE_DISABLE_TOOLS: go,go:honnef.co/go/tools/cmd/staticcheck,actionlint,zizmor,shellcheck
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@6612f0ef07ed2a736cd1e00a94a065522dd41195 # v5.2.5
+        with:
+          version: ${{ env.MISE_VERSION }}
+          cache_key_prefix: mise-v1-android
+          cache_save: ${{ env.SAVE_CACHE }}
+          env: false
+      - name: Restore the Android SDK
+        id: sdk-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/android-sdk
+          key: android-sdk-${{ hashFiles('scripts/android-sdk.sh') }}
+      - name: Restore Gradle caches
+        id: gradle-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .xdg/gradle/caches
+            .xdg/gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle.properties', 'mise.toml') }}
+          restore-keys: gradle-
+      - name: JVM unit tests (warnings as errors)
+        run: mise exec -- scripts/test-android.sh
+      - name: Debug APK (placeholder google-services.json, throwaway debug key)
+        run: mise exec -- scripts/build.sh android
+      - name: Upload the debug APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: teams-bridge-debug-apk
+          path: dist/teams-bridge-debug.apk
+          retention-days: 14
+          if-no-files-found: error
+      - name: Save the Android SDK
+        if: env.SAVE_CACHE == 'true' && steps.sdk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/android-sdk
+          key: ${{ steps.sdk-cache.outputs.cache-primary-key }}
+      - name: Save Gradle caches
+        if: env.SAVE_CACHE == 'true' && steps.gradle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .xdg/gradle/caches
+            .xdg/gradle/wrapper
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}

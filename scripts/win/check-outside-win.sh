@@ -58,6 +58,7 @@ while IFS=$'\t' read -r what p; do
   # A tbd-test-* task that still exists after a run was not deleted by its test: always a failure.
   if [[ "$what" == task-added && "$q" == schtasks:/tbd-test-* ]]; then unacked+=( "$what	$p" ); continue; fi
   for g in "${globs[@]}"; do
+    # shellcheck disable=SC2053
     [[ "$q" == $g ]] && { ok=1; break; }   # exact glob: rows that cover descendants end in *
     # a directory whose mtime changed only because an acknowledged child changed
     [[ "$what" == touched && "${g,,}" == "${q,,}/"* ]] && { ok=1; break; }

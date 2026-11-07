@@ -63,7 +63,7 @@ bin="$T/edge/opt/microsoft/msedge/msedge"
 sos=( "$bin" ); for so in "$T/edge/opt/microsoft/msedge/"*.so; do [[ "$so" == *qt*_shim.so ]] || sos+=( "$so" ); done
 missing="$(ldd "${sos[@]}" 2>/dev/null | awk '/not found/{print $1}' | sort -u)"
 if [[ -n "$missing" ]]; then
-  echo "fetch-edge: missing libraries: $(echo $missing)"
+  echo "fetch-edge: missing libraries: ${missing//$'\n'/ }"
   echo "fetch-edge: install the packages that provide them (record them in OUTSIDE.md), then rerun"; exit 1
 fi
 write_wrapper

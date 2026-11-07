@@ -20,4 +20,5 @@ for dir in "${pkgs[@]}"; do
   echo "sync-win: test/$rel/$name.test.exe"
 done
 mkdir -p "$WIN_SB_UNIX/test/proto" && cp proto/vectors.json "$WIN_SB_UNIX/test/proto/"
+# shellcheck disable=SC2028  # the backslash is part of a Windows path, bash's echo keeps it
 echo "sync-win: ${#pkgs[@]} test binaries in $WIN_SB\\test"

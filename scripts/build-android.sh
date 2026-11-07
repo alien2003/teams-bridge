@@ -12,6 +12,9 @@ command -v gradle >/dev/null || die "gradle not on PATH; run through mise from $
 # (the deprecated ANDROID_SDK_HOME names the *parent* of the .android folder). ANDROID_USER_HOME is
 # the one that counts; drop the other for the build.
 unset ANDROID_SDK_HOME
+# CI runners export ANDROID_SDK_ROOT for their own SDK; AGP fails when it disagrees with ANDROID_HOME.
+unset ANDROID_SDK_ROOT
+mkdir -p "$ROOT/.tmp"   # TMPDIR and java.io.tmpdir (mise.toml); a fresh clone has none
 
 "$ROOT/scripts/android-sdk.sh"
 "$ROOT/scripts/debug-keystore.sh"

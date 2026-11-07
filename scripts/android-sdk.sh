@@ -15,6 +15,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Same environment as build-android.sh / test-android.sh: ANDROID_USER_HOME is the one that counts;
 # the deprecated ANDROID_SDK_HOME (the parent of a .android folder) only conflicts with it.
 unset ANDROID_SDK_HOME
+# CI runners export ANDROID_SDK_ROOT for their own SDK; sdkmanager and AGP must see only ANDROID_HOME.
+unset ANDROID_SDK_ROOT
+mkdir -p "$ROOT/.tmp"   # mktemp and the install log below; a fresh clone has none
 
 # Keep in sync with compileSdk / buildToolsVersion in android/app/build.gradle.kts.
 PACKAGES=("platforms;android-37.2" "build-tools;37.0.0" "platform-tools")

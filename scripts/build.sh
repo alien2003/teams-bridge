@@ -4,6 +4,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+mkdir -p .tmp   # TMPDIR (mise.toml); a fresh clone has none
 what="${1:-all}"
 version="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
 ldflags="-s -w -X main.version=$version"

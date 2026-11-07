@@ -25,6 +25,10 @@ scheduled task.
 | `~/.local/share/mise/installs/java/temurin-17.0.21+9*` | mise store | JDK 17 for Gradle / Android | `mise uninstall java@temurin-17.0.21+9` | keep |
 | `~/.local/share/mise/installs/gradle/9.8.2*` | mise store | Gradle for the Android build (no wrapper is committed) | `mise uninstall gradle@9.8.2` | keep |
 | `~/.local/share/mise/installs/go-honnef-co-go-tools-cmd-staticcheck/0.8.2*` | mise store | staticcheck | `mise uninstall go:honnef.co/go/tools/cmd/staticcheck@0.8.2` | keep |
+| `~/.local/share/mise/installs/actionlint/1.7.12*` | mise store | actionlint for `mise run lint-ci` (aqua backend) | `mise uninstall actionlint@1.7.12` | keep |
+| `~/.local/share/mise/installs/zizmor/1.32.0*` | mise store | zizmor for `mise run lint-ci` (aqua backend) | `mise uninstall zizmor@1.32.0` | keep |
+| `~/.local/share/mise/installs/shellcheck/0.11.0*` | mise store | shellcheck for `mise run lint-ci` and actionlint (aqua backend) | `mise uninstall shellcheck@0.11.0` | keep |
+| `~/.cache/sigstore-rust*` | cache (mise) | `mise install` verifies the aqua tools' (actionlint, zizmor, shellcheck) sigstore attestations and refreshes sigstore's TUF trust metadata here; mise's own process does not see the project `XDG_CACHE_HOME` | `rm -rf ~/.cache/sigstore-rust` (a cache: refetched on the next verification) | keep |
 | `~/.local/state/mise/trusted-configs/user-teams-bridge-*` | mise state | `mise trust` entry for this repository's `mise.toml` | `mise trust --untrust /home/user/teams-bridge/mise.toml` | keep |
 | `~/.config/go/telemetry/local/*@go1.27.3-*.count` | noise | Pre-existing Go telemetry counters (born before our stamp). `mise install` runs `go version` without the project env, which bumps them; inside the project env Go writes to `.xdg/config/go/telemetry` | none (not ours) | noise |
 | `/tmp/hsperfdata_user` | noise | Pre-existing HotSpot perf-data dir (born before our stamp). Its mtime is touched by the `java -version` that `mise install` runs; our own JVMs run with `-XX:-UsePerfData` | none (not ours) | noise |
