@@ -886,7 +886,8 @@ Configuration (`internal/config`):
   Finder users. The space in the path is safe: arguments are passed as separate argv elements and
   printed commands are shell-quoted. The one catch, Chromium mapping a profile under
   `Application Support` to a disk cache under `~/Library/Caches/<same path>`, is handled by the
-  browser switches (`--disk-cache-dir`, below).
+  browser switches (`--disk-cache-dir`, below) and by removing the empty tree the browser still
+  creates there once it has exited (measured, see the end of this entry).
 * **Browser detection:** config `browser` → `TBD_BROWSER` → source `macos-standard`: Microsoft
   Edge, Chromium, Google Chrome (the Linux priority), each looked for as
   `/Applications/<X>.app/Contents/MacOS/<X>` and then under `~/Applications` → the Linux names on
@@ -970,7 +971,7 @@ Browser (`internal/browser`):
   home, then a `Launch` + `Attach` on the same home must send it back, which proves that the store
   survives a restart and that login and daemon agree on its key.
 * **Runner-only check** (`cache_darwin_test.go`, `GITHUB_ACTIONS=true`): with a home under the
-  real `~/Library/Application Support/tbd-test-<random>`, after a page load
+  real `~/Library/Application Support/tbd-test-<random>`, after a page load and the browser's exit
   `~/Library/Caches/tbd-test-<random>` must not exist and `<home>/cache` must hold files; both are
   removed afterwards.
 * **Socket path:** Chromium's singleton socket lives in `TMPDIR`, and `sun_path` holds 104 bytes
@@ -1107,3 +1108,15 @@ Mac. SECURITY.md states the at-rest trade-off and the missing Developer ID;
 CONTRIBUTING.md the macOS legs and the bash 3.2 rule; the bug report form offers macOS Apple
 Silicon and Intel. `OUTSIDE.md` is unchanged: on the dev PC the port only cross-builds into
 `dist/`, `.tmp/` and `.xdg/`; everything macOS touches happens on throwaway runners.
+
+First runs on GitHub's macOS runners (2026-11-07, both architectures):
+
+* **The mapped cache directory is created anyway.** With `--disk-cache-dir=<home>/cache` the disk
+  cache goes there (37 files after one page load), but the browser still creates
+  `~/Library/Caches/<rel>/profile/tbd` for a profile under `~/Library/Application Support/<rel>`,
+  empty: three directories, no file. No switch keeps it from doing so, so `Launch` removes that
+  tree once the browser process has exited (leaf first, each parent while empty, never
+  `~/Library/Caches` itself; `os.Remove` leaves anything that holds a file). While the daemon runs
+  the empty tree exists; after a kill it stays until the next browser exit.
+* **The dry run of `install` shows the plist,** whose `ProgramArguments` hold one `<string>` per
+  argument: the CLI test that looked for ` run ` on a command line also accepts `<string>run</string>`.

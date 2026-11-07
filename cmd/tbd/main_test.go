@@ -124,7 +124,11 @@ func TestInstallDryRunTouchesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("install --dry-run: %d %s", code, e)
 	}
-	if !strings.Contains(out, home) || !strings.Contains(out, " run ") && !strings.Contains(out, " run\n") && !strings.Contains(out, "run --home") {
+	// The command line as systemd's ExecStart or the task's arguments show it, or, on macOS, as the
+	// plist's ProgramArguments (one <string> per argument).
+	showsRun := strings.Contains(out, " run ") || strings.Contains(out, " run\n") ||
+		strings.Contains(out, "run --home") || strings.Contains(out, "<string>run</string>")
+	if !strings.Contains(out, home) || !showsRun {
 		t.Fatalf("dry run does not show the service command line:\n%s", out)
 	}
 	if ents, _ := os.ReadDir(home); len(ents) != 0 {

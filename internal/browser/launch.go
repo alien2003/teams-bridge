@@ -111,6 +111,46 @@ func CrashesDir(home string) string { return filepath.Join(home, "crashes") }
 // outside it (docs/DECISIONS.md D26).
 func DiskCacheDir(home string) string { return filepath.Join(home, "cache") }
 
+// mappedCacheDir is where Chromium on macOS maps the cache of the profile dir profile (absolute):
+// a profile under <userHome>/Library/Application Support/<rel> gets
+// <userHome>/Library/Caches/<rel>; elsewhere the cache stays in the profile and this returns "".
+// Even with --disk-cache-dir the browser creates that directory tree, empty (measured on GitHub's
+// macOS runners, D26); removeEmptyMappedCache removes it once the browser has exited.
+func mappedCacheDir(userHome, profile string) string {
+	if userHome == "" || !filepath.IsAbs(profile) {
+		return ""
+	}
+	lib := filepath.Join(userHome, "Library")
+	rel, err := filepath.Rel(filepath.Join(lib, "Application Support"), filepath.Clean(profile))
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return filepath.Join(lib, "Caches", rel)
+}
+
+// removeEmptyMappedCache removes the empty directory tree Chromium leaves at the mappedCacheDir of
+// the profile ProfileName inside profile (Chromium's user data dir), for the user home userHome: the
+// leaf and then each parent up to, not including, ~/Library/Caches, stopping at the first one
+// that is not empty (os.Remove never removes a directory with anything in it); a missing one is
+// skipped.
+func removeEmptyMappedCache(userHome, profile string, log *slog.Logger) {
+	abs, err := filepath.Abs(profile)
+	if err != nil {
+		return
+	}
+	dir := mappedCacheDir(userHome, filepath.Join(abs, ProfileName))
+	if dir == "" {
+		return
+	}
+	stop := filepath.Join(userHome, "Library", "Caches")
+	for ; dir != stop && strings.HasPrefix(dir, stop+string(filepath.Separator)); dir = filepath.Dir(dir) {
+		if err := os.Remove(dir); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Debug("left the browser's mapped cache dir", "err", err)
+			return
+		}
+	}
+}
+
 // platformLaunchArgsFor returns the extra switches for goos (runtime.GOOS in Launch; a parameter so
 // that the tests of every OS cover every list). The sandbox stays on everywhere: see LaunchOptions
 // and docs/DECISIONS.md.
@@ -314,6 +354,11 @@ func Launch(ctx context.Context, o LaunchOptions) (*Process, error) {
 	// Wait on the process in the background.
 	go func() {
 		werr := cmd.Wait()
+		if runtime.GOOS == "darwin" {
+			if uh, err := os.UserHomeDir(); err == nil {
+				removeEmptyMappedCache(uh, profile, log)
+			}
+		}
 		p.mu.Lock()
 		if p.err == nil {
 			p.err = werr

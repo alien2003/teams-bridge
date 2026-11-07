@@ -3,6 +3,7 @@ package browser
 import (
 	"encoding/binary"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -175,5 +176,72 @@ func TestParseProcArgs2(t *testing.T) {
 		if got, err := parseProcArgs2(b); err == nil {
 			t.Errorf("%s: parsed %q, want an error", name, got)
 		}
+	}
+}
+
+// Chromium's macOS mapping of a profile's cache, and the removal of the empty tree it leaves there
+// (D26), on every OS.
+func TestMappedCacheDir(t *testing.T) {
+	uh := filepath.FromSlash("/Users/u")
+	as := filepath.Join(uh, "Library", "Application Support")
+	cases := map[string]string{
+		filepath.Join(as, "tbd", "profile", "tbd"): filepath.Join(uh, "Library", "Caches", "tbd", "profile", "tbd"),
+		filepath.Join(as, "x"):                     filepath.Join(uh, "Library", "Caches", "x"),
+		as:                                         "",
+		filepath.Join(as, ".."):                    "",
+		filepath.Join(as+"x", "tbd"):               "",
+		filepath.Join(uh, "tbd", "profile", "tbd"): "",
+		filepath.FromSlash("rel/profile/tbd"):      "",
+	}
+	for profile, want := range cases {
+		if got := mappedCacheDir(uh, profile); got != want {
+			t.Errorf("mappedCacheDir(%q) = %q, want %q", profile, got, want)
+		}
+	}
+	if got := mappedCacheDir("", filepath.Join(as, "tbd")); got != "" {
+		t.Errorf("no user home: %q", got)
+	}
+}
+
+func TestRemoveEmptyMappedCache(t *testing.T) {
+	uh := t.TempDir()
+	home := filepath.Join(uh, "Library", "Application Support", "tbd")
+	caches := filepath.Join(uh, "Library", "Caches")
+	leaf := filepath.Join(caches, "tbd", "profile", ProfileName)
+	if err := os.MkdirAll(leaf, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	removeEmptyMappedCache(uh, ProfileDir(home), testLogger())
+	if _, err := os.Stat(filepath.Join(caches, "tbd")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the empty tree is still there: %v", err)
+	}
+	if _, err := os.Stat(caches); err != nil {
+		t.Errorf("~/Library/Caches itself must stay: %v", err)
+	}
+
+	// A file anywhere in the tree keeps it and every parent; a missing leaf is skipped.
+	if err := os.MkdirAll(filepath.Join(caches, "tbd", "profile"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	keep := filepath.Join(caches, "tbd", "keep")
+	if err := os.WriteFile(keep, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	removeEmptyMappedCache(uh, ProfileDir(home), testLogger())
+	if _, err := os.Stat(filepath.Join(caches, "tbd", "profile")); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("the empty profile dir is still there: %v", err)
+	}
+	if _, err := os.Stat(keep); err != nil {
+		t.Errorf("a file was removed: %v", err)
+	}
+
+	// A home outside Application Support maps nowhere: nothing is touched.
+	other := filepath.Join(caches, "elsewhere", "profile", ProfileName)
+	if err := os.MkdirAll(other, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	removeEmptyMappedCache(uh, ProfileDir(filepath.Join(uh, "elsewhere")), testLogger())
+	if _, err := os.Stat(other); err != nil {
+		t.Errorf("an unrelated dir was removed: %v", err)
 	}
 }
