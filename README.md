@@ -18,6 +18,12 @@ the daemon in clear text; there is no relay server of ours and no reverse channe
 means pairing again. The protocol is specified in [`proto/PROTOCOL.md`](proto/PROTOCOL.md); what
 is in and out of scope, and how to report a vulnerability, in [`SECURITY.md`](SECURITY.md).
 
+<p align="center">
+  <img src="docs/assets/screen-pair.png" width="240" alt="Teams Bridge: pairing with tbd by QR code or the 26-character code">
+  <img src="docs/assets/screen-status.png" width="240" alt="Teams Bridge: status, where a tap opens Teams, notifications, unpair">
+  <img src="docs/assets/screen-notification.png" width="240" alt="A notification pushed by tbd">
+</p>
+
 Not affiliated with, endorsed or supported by Microsoft. "Microsoft Teams" and "Microsoft Edge" are
 trademarks of Microsoft Corporation.
 

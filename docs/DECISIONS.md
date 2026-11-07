@@ -812,3 +812,27 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
     one file not under the WTFPL: the README's License section names the exception, and the
     GPL-3.0 text ships next to it as `docs/assets/LICENSE-GPL-3.0.txt`.
     Obtainium's own app directory wants ≥ 35 stars and a project ≥ 4 months old: not now.
+
+## D25 — First release candidate: what the runners and an emulator showed (2026-11-07)
+
+* **CI on GitHub's runners** needed three fixes the dev PC could not show: mise points `TMPDIR` at
+  `.tmp/`, which a fresh checkout lacks (every job now creates it before `mise-action`); Ubuntu 24.04
+  runners forbid unprivileged user namespaces through AppArmor, so Edge fell back to its
+  unconfigured SUID helper and aborted (the Go test job lifts the restriction with `sysctl`, the
+  browser sandbox stays on); and tests that waited for the browser with a bare channel receive hung
+  until the package timeout instead of failing (they wait with a timeout now). A Windows E2E test
+  read the fake sign-in page before it was parsed; it polls now.
+* **v0.1.0-rc.1** was released by the pipeline (one job re-run after that flake). Checked from the
+  published assets: `sha256sum -c SHA256SUMS`, `gh attestation verify` for all five assets (signed by
+  `release.yml` at `refs/tags/v0.1.0-rc.1`), the APK's v3 signature with the release certificate
+  (SHA-256 `46fcc94a…16fc3e`), not debuggable, versionName `0.1.0-rc.1`, versionCode 10001.
+* **Smoke test of the R8 build** on an Android 16 emulator (`google_apis` x86_64 image, KVM; the
+  Play Store image refuses adb without an on-screen confirmation): install, start, pair by typed
+  code with a throwaway test daemon (fresh secret, same Firebase project), `tbd test-push`, the
+  notification shows and a tap opens the browser; no entry in the crash log. The README screenshots
+  come from that run, with the status bar in demo mode (fixed clock).
+* **Emulator hygiene:** the emulator and adb ignore `ANDROID_USER_HOME` for some files (`adbkey`,
+  feature flags, modem state, the console auth token) and the emulator writes crash reports to
+  `/tmp/android-$USER`; run them with `HOME`, `ANDROID_EMULATOR_HOME`, `ANDROID_USER_HOME`,
+  `ANDROID_TMP` and `TMPDIR` pointed into the repository (`.xdg/emu-home`, `.tmp/android`).
+

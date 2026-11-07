@@ -80,6 +80,8 @@ scheduled task.
 | `%APPDATA%\Microsoft\Windows\Recent*` | noise (host) | Windows "recent items" | none (not ours) | noise |
 | `%LOCALAPPDATA%\Microsoft\Windows\WebCache*` | noise (host) | Windows' shared web cache (browser downloads) | none (not ours) | noise |
 | `%LOCALAPPDATA%\Programs\tbd*` | yours (production) | the installed `tbd.exe` of a real setup (the README's suggested location) | `Remove-Item -Recurse "$env:LOCALAPPDATA\Programs\tbd"` (after `tbd uninstall`) | keep |
+| `~/.android` | noise (yours) | Your Android tools' own folder. The Android emulator once wrote its adb key, feature flags and modem state here before its HOME was redirected into the repository; those files were removed, only the folder's change time remains | none (yours) | noise |
+| `~/.cache/gh` | noise (yours) | Your GitHub CLI's cache: `gh run view --log` and `gh attestation verify` (used to check CI runs and release provenance) leave run logs and a Sigstore trust root here | `find ~/.cache/gh -maxdepth 1 -name 'run-log-*.zip' -newer .tmp/stamp -delete; find ~/.cache/gh -maxdepth 1 -name .sigstore -newer .tmp/stamp -exec rm -rf {} +` | run |
 <!-- END outside-table -->
 
 ## apt packages
