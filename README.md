@@ -1,5 +1,9 @@
 # Teams Bridge (`tbd`)
 
+[![CI](https://github.com/alien2003/teams-bridge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/alien2003/teams-bridge/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/alien2003/teams-bridge?sort=semver)](https://github.com/alien2003/teams-bridge/releases/latest)
+[![License: WTFPL](https://img.shields.io/badge/license-WTFPL-brightgreen)](LICENSE)
+
 Microsoft Teams notifications on an Android phone without the Teams app. `tbd` keeps Teams web open
 in a headless Edge/Chromium on your computer, catches every notification Teams raises (by replacing
 `window.Notification` in the page, the way Ferdium does), encrypts it and pushes it through Firebase
@@ -11,10 +15,28 @@ derived from a 16-byte pairing secret that only the computer and the phone hold)
 of two fixed sizes. Google/FCM sees only ciphertext, its size class, timing, and a topic name that is
 derived from the secret and therefore unguessable. Titles, senders, message text and URLs never leave
 the daemon in clear text; there is no relay server of ours and no reverse channel. Losing the secret
-means pairing again. The protocol is specified in [`proto/PROTOCOL.md`](proto/PROTOCOL.md).
+means pairing again. The protocol is specified in [`proto/PROTOCOL.md`](proto/PROTOCOL.md); what
+is in and out of scope, and how to report a vulnerability, in [`SECURITY.md`](SECURITY.md).
 
 Not affiliated with, endorsed or supported by Microsoft. "Microsoft Teams" and "Microsoft Edge" are
 trademarks of Microsoft Corporation.
+
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph PC["Your computer: Linux, WSL or Windows"]
+    T["Teams web in a headless Edge"] -- "window.Notification hook" --> D["tbd daemon"]
+  end
+  MS(["Microsoft Teams (cloud)"]) -- "Teams web traffic, as in any browser" --- T
+  D -- "ChaCha20-Poly1305, padded to 1024 or 2048 bytes,<br/>FCM data message to a secret-derived topic" --> F[("Firebase Cloud Messaging")]
+  F --> A["Teams Bridge app (Android)"]
+  A -- "tap: deep link" --> B["Browser or Teams PWA on the phone"]
+  D -. "pairing QR: 16-byte secret, once, never sent over the network" .-> A
+```
+
+The daemon also sends a heartbeat every 6 hours and alerts (session expired, browser dead, daemon
+stopping) the same way; nothing ever travels from the phone back to the computer.
 
 ## Prerequisites
 
@@ -54,19 +76,35 @@ mapping, both binaries, `SHA256SUMS`); it needs a release key, see
 Every [release](https://github.com/alien2003/teams-bridge/releases) is built by GitHub Actions from
 the tagged commit and carries `tbd-linux-amd64`, `tbd-windows-amd64.exe`, `teams-bridge.apk`,
 `teams-bridge-mapping.txt.gz` (to read an obfuscated stack trace) and `SHA256SUMS`, each with a
-build provenance attestation. Tags `vX.Y.Z-rc.N` are prereleases.
+build provenance attestation. The names carry no version, so
+`https://github.com/alien2003/teams-bridge/releases/latest/download/<name>` always points at the
+newest release. Tags `vX.Y.Z-rc.N` are prereleases; what changed is in [`CHANGELOG.md`](CHANGELOG.md).
 
 **The release APK is built for the maintainer's Firebase project:** it receives only what is sent
 with that project's service account. With your own Firebase project (see Prerequisites), take the
 `tbd` binary from the release and build the APK yourself with your `google-services.json`.
+
+<a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22io.github.alien2003.teamsbridge%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Falien2003%2Fteams-bridge%22%2C%22author%22%3A%22alien2003%22%2C%22name%22%3A%22Teams%20Bridge%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22%5Eteams-bridge%5B.%5Dapk%24%5C%22%2C%5C%22allowedSigningCertHashes%5C%22%3A%5C%2246%3AFC%3AC9%3A4A%3A53%3A66%3A85%3A09%3A66%3A12%3A4F%3A5C%3A30%3AA1%3AA4%3AC6%3A33%3AF0%3A3C%3AA8%3A2E%3A01%3A89%3AC7%3A48%3A63%3A19%3AE1%3ABA%3A16%3AFC%3A3E%5C%22%7D%22%7D"><img src="docs/assets/badge_obtainium.png" alt="Get it on Obtainium" width="161" height="48"></a>
+
+[Obtainium](https://github.com/ImranR98/Obtainium) keeps the app updated from these releases. The
+badge adds it with two settings, which Obtainium shows before it adds anything: *Filter links by
+regex* `^teams-bridge[.]apk$` (only the release APK) and *Expected signing certificate hashes* set
+to the certificate below, so Obtainium refuses an APK signed by any other key. Use Obtainium 1.7.4
+or newer: the check exists since 1.7.0 and works on Android 9 and 10 since 1.7.4. Prereleases are
+skipped unless you turn on *Include prereleases*. The badge goes through Obtainium's redirect page
+(`apps.obtainium.imranr.dev`, which runs its own analytics); to avoid it, add
+`https://github.com/alien2003/teams-bridge` in Obtainium and set the two settings by hand.
+`scripts/obtainium-link.sh` generates the link.
 
 Verify what you downloaded (`gh` and `apksigner` are optional; `apksigner` is in the Android SDK's
 build-tools):
 
 ```sh
 sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify tbd-linux-amd64 -R alien2003/teams-bridge \
-  --signer-workflow alien2003/teams-bridge/.github/workflows/release.yml
+for f in teams-bridge.apk tbd-linux-amd64; do   # any asset listed in SHA256SUMS
+  gh attestation verify "$f" -R alien2003/teams-bridge \
+    --signer-workflow alien2003/teams-bridge/.github/workflows/release.yml
+done
 apksigner verify --print-certs teams-bridge.apk
 ```
 
@@ -81,10 +119,12 @@ On Windows, compare `Get-FileHash tbd-windows-amd64.exe` with `SHA256SUMS`, then
 `Unblock-File tbd-windows-amd64.exe`; the binary has no Authenticode signature, so SmartScreen may
 warn. Rename it to `tbd.exe` (on Linux: `install -m755 tbd-linux-amd64 ~/.local/bin/tbd`).
 
-**Coming from a self-built debug APK:** the release is signed by a different key, so Android will
-not update one with the other. Uninstall the debug app first, install `teams-bridge.apk`, then pair
-again with `tbd pair` (without `--new`, so the daemon keeps its secret) and choose **Open Teams in**,
-notifications and battery optimisation again.
+**Switching from a self-built debug APK to the release APK** takes one uninstall: Android never
+updates an app with one signed by a different key. Uninstall Teams Bridge, install
+`teams-bridge.apk`, then run `tbd pair` on the computer and scan the QR code it shows. Plain
+`tbd pair` shows the existing pairing (never use `--new` for this: it would unpair every phone), so
+the daemon keeps running unchanged. Uninstalling also clears the app's settings: choose **Open
+Teams in**, allow notifications and exempt the app from battery optimisation again.
 
 ## Set up
 
@@ -97,10 +137,10 @@ tbd login      # a browser window opens with the daemon's own profile: sign in, 
 tbd pair       # prints a QR code and the 26-character code, then sends pairing pings
 ```
 
-Install `dist/teams-bridge-debug.apk` on the phone, open **Teams Bridge → Pair**, scan the QR code
-(or type the code), and wait for **Paired ✓**. Further down the same screen, under **Open Teams in**,
-pick where a tap opens Teams (a browser, or the Teams PWA if you installed one), and allow
-notifications.
+Install the app on the phone (`dist/teams-bridge-debug.apk` from your build, or `teams-bridge.apk`
+from a release, see above), open **Teams Bridge → Pair**, scan the QR code (or type the code), and
+wait for **Paired ✓**. Further down the same screen, under **Open Teams in**, pick where a tap opens
+Teams (a browser, or the Teams PWA if you installed one), and allow notifications.
 
 ```sh
 tbd test-push  # a test notification should arrive on the phone
@@ -174,6 +214,20 @@ Edge keeps some per-user bookkeeping in the registry no matter which profile it 
 * **Nothing arrives.** `tbd status` shows whether notifications are being captured; `tbd run
   --log-level debug` logs their raw structure (including text — debug only). `tbd test-push` checks
   the FCM path on its own.
+* **"App not installed" or a package conflict when installing the release APK** over a debug build
+  (or the other way round): the keys differ, uninstall first (see *Switching from a self-built debug
+  APK* above).
+* **Obtainium reports a signing certificate mismatch:** the APK it downloaded is not signed by the
+  release key. Do not install it; open an issue (or a private report, if you suspect tampering).
+* **Reporting a bug:** paste only info-level log lines (they hold structure, counts and lengths, no
+  names or message text; replace your user name in paths), never `--log-level debug` output,
+  `config.toml`, the pairing code or a picture of the QR code; see the bug report form.
+
+## Contributing and security
+
+How to build, test and send a change: [`CONTRIBUTING.md`](CONTRIBUTING.md). Report a vulnerability
+privately as described in [`SECURITY.md`](SECURITY.md), not in a public issue. Decisions and
+measured facts behind the design are in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## License
 

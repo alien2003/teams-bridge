@@ -731,3 +731,61 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   `fix` / `perf` subjects since the previous release tag (a final release counts from the previous
   final release); then the asset table and how to verify (`sha256sum -c`, `gh attestation verify
   --signer-workflow`, `apksigner verify --print-certs`, the certificate fingerprint).
+
+## D24 — Publication: documents, Obtainium, how the pieces fit
+
+* **What publishing consists of.** The repository goes public at
+  `https://github.com/alien2003/teams-bridge` with: CI on every push to `main` and every pull
+  request (D22); a release for every pushed tag `v*`, built, signed with the release key from
+  the `release` environment's secrets, attested and published without a draft or a reviewer (D23);
+  the stop list and the pre-push check on the maintainer's PC only (D21); CodeQL default setup,
+  private vulnerability reporting, secret scanning and the repository settings are configured
+  through the API, not in a workflow file. **The whole history is rewritten before the first push**
+  (the values D21 removed from HEAD, every author and committer timestamp in UTC), so the first
+  public commit already passes `prepush-check`; the first tag is `v0.1.0`.
+* **Documents.** `README.md`: badges for CI, the latest release and the licence (a static WTFPL
+  badge, independent of GitHub's licence detection), a mermaid diagram under "How it works", the
+  release install with `SHA256SUMS`, `gh attestation verify --signer-workflow` and the certificate,
+  and the switch from a debug APK: one uninstall (Android never updates an app with one signed by
+  another key), then scan the QR code plain `tbd pair` shows again (it keeps the secret, so the
+  daemon is untouched). `SECURITY.md`: GitHub private vulnerability reporting only, best effort with
+  no promised times, what never to post (debug logs, content, names, ids, `config.toml`, the
+  pairing code or QR), the threat model in short, and what is out of scope. `CONTRIBUTING.md`:
+  mise, the tasks, the stop list as a concept (never its contents), the pre-push check (contributors
+  commit with their GitHub noreply address and `TZ=UTC`), Dependabot and what is updated by hand,
+  how a release is made. Issue forms (bug: "paste only structure-only log lines" and a required
+  privacy checkbox; feature) with blank issues off and the security contact link pointing to private
+  reporting; a pull-request checklist. No `CODEOWNERS` (one maintainer, no required review), no
+  screenshots yet.
+* **`CHANGELOG.md`** (Keep a Changelog): the next version's section is `## [X.Y.Z] - Unreleased`
+  and gets its date when tagged; `release-notes.sh` takes that section as the release notes (its
+  heading line is not copied). An rc has no section of its own and gets its tag message, else the
+  `feat`/`fix`/`perf` subjects.
+* **Obtainium, checked in its source** (`ImranR98/Obtainium`, release 1.7.4 of 2026-11-01):
+  * `obtainium://app/<encodeURIComponent(JSON)>` imports one app config of Obtainium's export
+    format: `id`, `url`, `author`, `name`, `preferredApkIndex`, and `additionalSettings` as a
+    **string holding JSON** (`App.fromJson` runs `jsonDecode` on it). Obtainium shows the config and
+    asks before adding it. The badge links to `https://apps.obtainium.imranr.dev/redirect?r=…`,
+    whose page reads `r` with `URLSearchParams`, decodes it once more and re-encodes it, and offers
+    "get Obtainium" when the app link does nothing; it carries that site's analytics, so the README
+    also says how to add the app by hand.
+  * `apkFilterRegEx` is matched against the asset's file name: `^teams-bridge[.]apk$` (D23's one
+    unversioned APK; the debug artifact and the mapping never match).
+  * **Certificate pinning is supported**: `allowedSigningCertHashes`, a string of SHA-256
+    certificate hashes separated by whitespace, commas or semicolons, normalised to uppercase
+    colon pairs (the format of `android/release-cert.sha256`). With it set, Obtainium refuses an APK
+    whose signer certificates are not all in the list, or whose certificates it cannot read, with
+    no override. Added in 2026-09 and first released in 1.7.0; the check is fixed for Android 9 and
+    10 (this app's minSdk 28) only in 1.7.4, which the README names. Obtainium compares the
+    certificate history for a single-signer APK, so after a key rotation (v3) the list must hold
+    every certificate of the lineage, and existing users must edit the setting by hand.
+  * Prereleases are skipped unless *Include prereleases* is turned on (it is off by default), which
+    suits rc tags.
+  * `scripts/obtainium-link.sh` builds the link from `android/release-cert.sha256` and the
+    applicationId (refusing if either differs in form); `scripts/obtainium-link_test.sh` (in
+    `test-scripts`) decodes it back, checks the fields and the filter, and checks that `README.md`
+    carries exactly this link, so a new certificate cannot leave a stale pin in the README.
+  * The badge is Obtainium's `badge_obtainium.png` (GPL-3.0), trimmed of its transparent padding to
+    564×168 and shown at 161×48 as Obtainium's badging guide suggests, hosted in `docs/assets/`
+    (source and licence in `docs/assets/README.md`; the guide asks not to hotlink it).
+    Obtainium's own app directory wants ≥ 35 stars and a project ≥ 4 months old: not now.

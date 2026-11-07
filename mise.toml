@@ -69,7 +69,7 @@ description = "build-go, then go test ./... against dist/tbd and a real browser 
 run = "scripts/test-go.sh"
 
 [tasks.test-scripts]
-description = "Table tests of the release scripts (version.sh, release-notes.sh)"
+description = "Table tests of the release scripts (version.sh, release-notes.sh, obtainium-link.sh)"
 run = "scripts/test-scripts.sh"
 
 [tasks.test-win]

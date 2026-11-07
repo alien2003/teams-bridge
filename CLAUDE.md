@@ -3,7 +3,7 @@
 `tbd` is a Go daemon that keeps Microsoft Teams web open in a headless Edge driven over CDP, catches
 every notification the page raises and pushes it end-to-end encrypted, as an FCM topic data message,
 to the Android app **Teams Bridge** (`android/`). There is no server of ours and no reverse channel.
-`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D23) records what was decided and measured,
+`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D24) records what was decided and measured,
 and where an entry says "brief corrected", DECISIONS wins.
 
 ## Rules
@@ -120,7 +120,8 @@ The maintainer works alone: commit directly on `main`, small Conventional Commit
 3. `mise run secrets-check` and `mise run check-outside` are clean (`check-outside-win` after host
    actions).
 4. Every non-obvious decision or measured fact has a `docs/DECISIONS.md` entry (next number, newest
-   last), every new side effect an `OUTSIDE.md` row, user-visible changes are in `README.md`.
+   last), every new side effect an `OUTSIDE.md` row, user-visible changes are in `README.md` and
+   under the unreleased version of `CHANGELOG.md`.
 5. The commit message holds no real ids or names. Nothing is pushed.
 
 Repository text (code, comments, docs, commits) is English.
@@ -174,8 +175,9 @@ phone: MessagingService → decrypt + replay filter → Notifier → tap → Ope
 | `test/faketeams/` | fake Teams (`site/`) + httptest server; browser-level E2E |
 | `android/` | Gradle project, app `io.github.alien2003.teamsbridge`; `…/proto/` = Kotlin twin of `internal/proto`; no Gradle wrapper (mise's `gradle`) |
 | `proto/` | `PROTOCOL.md` + `vectors.json` (frozen, read by Go and Kotlin tests) |
-| `.github/` | `workflows/ci.yml` (lint, Go tests on Linux and Windows with the runners' Edge, Android tests + debug APK; D22), `workflows/release.yml` (tag `v*` → CI, signed build, provenance, published release; D23), `dependabot.yml` |
-| `scripts/`, `scripts/win/` | what the mise tasks run; `win/lib.sh` = sandbox helpers; `outside-table.sh` parses the tables of OUTSIDE.md and the git-ignored OUTSIDE.local.md between their markers (keep the five columns); `secrets-lib.sh` = patterns + stop list shared by `secrets-check.sh` and `prepush-check.sh`; `version.sh` (tag → versionCode/Name) and `release-notes.sh` need only bash and git (the release workflow runs them before mise) |
+| `.github/` | `workflows/ci.yml` (lint, Go tests on Linux and Windows with the runners' Edge, Android tests + debug APK; D22), `workflows/release.yml` (tag `v*` → CI, signed build, provenance, published release; D23), `dependabot.yml`, `ISSUE_TEMPLATE/` (issue forms; security → private reporting), `pull_request_template.md` (D24) |
+| `scripts/`, `scripts/win/` | what the mise tasks run; `win/lib.sh` = sandbox helpers; `outside-table.sh` parses the tables of OUTSIDE.md and the git-ignored OUTSIDE.local.md between their markers (keep the five columns); `secrets-lib.sh` = patterns + stop list shared by `secrets-check.sh` and `prepush-check.sh`; `version.sh` (tag → versionCode/Name) and `release-notes.sh` need only bash and git (the release workflow runs them before mise); `obtainium-link.sh` prints the README badge's Obtainium link (APK filter + pinned release certificate, D24) |
+| `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `docs/assets/` | public documents (D24); the next version's `CHANGELOG.md` section `## [X.Y.Z] - Unreleased` becomes its release notes; `docs/assets/badge_obtainium.png` is Obtainium's (GPL-3.0, source in `docs/assets/README.md`) |
 
 Git-ignored, inside the repo: `.local/` (dev `TBD_HOME=.local/tbd`, `denylist.txt`, the release
 key `release/teams-bridge-release.p12` + `keystore.pass`: never print, copy or commit them), `.tools/`
@@ -198,7 +200,7 @@ From the repo root (`mise tasks` lists them); anything that is not a task runs a
 | `mise run lint-ci` | actionlint + `zizmor --offline` over `.github/`, `bash -n` + shellcheck over every script; after touching `.github/` or `scripts/` |
 | `mise run test` | lint, `test-scripts`, `edge`, `build-go`, then `test-go` and the Android JVM tests with warnings as errors |
 | `mise run test-go` | builds `dist/tbd`, then `go test -count=1 ./...` with `TBD_REQUIRE_BROWSER=1` (log in `.tmp/go-test.log`); what CI runs on Linux and, natively, on Windows |
-| `mise run test-scripts` | table tests of `version.sh` and `release-notes.sh` (part of `test` and the CI lint job) |
+| `mise run test-scripts` | table tests of `version.sh` and `release-notes.sh`, and `obtainium-link_test.sh` (the README's Obtainium link must equal `scripts/obtainium-link.sh`'s output; part of `test` and the CI lint job) |
 | `mise exec -- go test -count=1 -run TestX ./internal/hook/` | inner loop on one package |
 | `mise exec -- scripts/test-android.sh` | Android JVM tests only |
 | `mise run test-win` | cross-compiles, runs every `<pkg>.test.exe` in the sandbox, ends with `check-outside-win`; takes minutes and flashes a login window |

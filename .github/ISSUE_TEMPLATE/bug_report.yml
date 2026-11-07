@@ -1,0 +1,68 @@
+name: Bug report
+description: Something does not work as the README says.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **This issue is public.** Do not paste notification or message text,
+        names of people, chats, teams, channels or tenants, Teams ids or URL paths, `config.toml`,
+        the pairing code or a picture of its QR code, or output of `--log-level debug`.
+        A vulnerability goes to [private reporting](https://github.com/alien2003/teams-bridge/security/advisories/new) instead.
+  - type: input
+    id: tbd-version
+    attributes:
+      label: tbd version
+      description: Output of `tbd version`.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Computer
+      options:
+        - Windows 10/11 (native tbd.exe)
+        - WSL2
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and version
+      description: Name and version from the `browser` line of `tbd status` (please not the whole status, which names your Firebase service account).
+      placeholder: Edge 142.0.3595.53
+  - type: input
+    id: app
+    attributes:
+      label: Teams Bridge app
+      description: The app's version (Android Settings → Apps → Teams Bridge), whether it is the release APK or a self-built debug APK, and the Android version.
+      placeholder: 0.1.0 (release APK), Android 15
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what you expected
+      description: The steps that lead to it, as far as you know them.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines
+      description: |
+        Paste only structure-only log lines, from the default (info) level: for example
+        `notification captured`, `pushed`, `alert`, `browser started`, `session attached`,
+        `chat list survey`. They hold shapes, lengths, counts and booleans, not names or text.
+        Replace your user name in paths (and your Firebase project id, if you use your own project).
+        Never paste `--log-level debug` output.
+      render: text
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed tenant, team, channel, chat and person names, message text, ids and URL paths from everything above, and pasted no debug output, `config.toml`, pairing code or QR code.
+          required: true
