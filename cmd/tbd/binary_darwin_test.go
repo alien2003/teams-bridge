@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -69,9 +70,20 @@ func TestBinaryLaunchAgent(t *testing.T) {
 	readLog := func() string { b, _ := os.ReadFile(logFile); return string(b) }
 	attached := func(n int) bool { return strings.Count(readLog(), `msg="session attached"`) >= n }
 	profile := browser.ProfileDir(home)
+	// "--" ends pgrep's and pkill's options: the pattern itself starts with "--". Exit status 1 is
+	// "no such process"; anything else (a bad invocation) fails the test instead of passing as none.
+	pattern := regexp.QuoteMeta("--user-data-dir=" + profile)
 	browserLeft := func() bool {
-		err := exec.Command("pgrep", "-f", regexp.QuoteMeta("--user-data-dir="+profile)).Run()
-		return err == nil
+		err := exec.Command("pgrep", "-f", "--", pattern).Run()
+		var ee *exec.ExitError
+		switch {
+		case err == nil:
+			return true
+		case errors.As(err, &ee) && ee.ExitCode() == 1:
+			return false
+		}
+		t.Fatalf("pgrep -f -- %s: %v", pattern, err)
+		return false
 	}
 	t.Cleanup(func() {
 		if t.Failed() {
@@ -97,7 +109,7 @@ func TestBinaryLaunchAgent(t *testing.T) {
 		}
 		if waitUntil(15*time.Second, func() bool { return !browserLeft() }); browserLeft() {
 			t.Errorf("a browser on %s is still running", profile)
-			_ = exec.Command("pkill", "-KILL", "-f", regexp.QuoteMeta("--user-data-dir="+profile)).Run()
+			_ = exec.Command("pkill", "-KILL", "-f", "--", pattern).Run()
 		}
 	})
 
@@ -187,5 +199,12 @@ func TestBinaryLaunchAgent(t *testing.T) {
 	}
 	if !waitUntil(10*time.Second, func() bool { return countStopping(t, srv) >= 2 }) {
 		t.Errorf("%d daemon_stopping pushes, want 2 (stop, uninstall)", countStopping(t, srv))
+	}
+	// install and start ran no `launchctl enable` (the job was never disabled), so launchd keeps
+	// no lasting override for the label (D26).
+	if out, err := r.Run(ctx, "launchctl", "print-disabled", domain); err != nil {
+		t.Errorf("launchctl print-disabled %s: %v: %.200s", domain, err, out)
+	} else if strings.Contains(out, `"`+name+`"`) {
+		t.Errorf("launchd keeps an override for %s:\n%s", name, out)
 	}
 }

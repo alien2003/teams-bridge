@@ -227,10 +227,11 @@ From the repo root (`mise tasks` lists them); anything that is not a task runs a
   the page (`faketeams.ClosePageTargets`), not the browser, as a user closing the window would.
 - **darwin-only tests run only on GitHub's macOS runners** (there is no Mac here): `*_darwin_test.go`
   in config, browser, daemon (lock holder), service (`TestLaunchdRoundTrip`: a `tbd-test-*` job
-  whose plist lives in a temp dir, run by a copy of the test binary; skipped without a GUI domain,
-  a failure with `TBD_REQUIRE_LAUNCHD=1`) and cmd/tbd (`TestBinaryLaunchAgent`: real `tbd install`
-  … `uninstall` under launchd, writes `~/Library/LaunchAgents/tbd-test-*.plist`, so only with
-  `GITHUB_ACTIONS=true` or `TBD_TEST_LAUNCHD=1`). On Linux they are only vetted (`mise run lint`);
+  whose plist lives in a temp dir, run by a copy of the test binary) and cmd/tbd
+  (`TestBinaryLaunchAgent`: real `tbd install` … `uninstall` under launchd, writes
+  `~/Library/LaunchAgents/tbd-test-*.plist`). Both load a real job, so they run only with
+  `GITHUB_ACTIONS=true` or `TBD_TEST_LAUNCHD=1`; they skip without a GUI domain, a failure with
+  `TBD_REQUIRE_LAUNCHD=1`. On Linux they are only vetted (`mise run lint`);
   everything decidable without a Mac is a GOOS-parameterised test that runs here. A macOS fix is
   proven only by a green macOS leg of `ci.yml` (read failures with `gh run view --log-failed`;
   the step summary of `Footprint (macOS)` lists what the tests left).

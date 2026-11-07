@@ -185,6 +185,9 @@ type Env struct {
 	LaunchAgentsDir string
 	// Quarantined (macOS) reports whether a file carries com.apple.quarantine; nil means no.
 	Quarantined func(path string) bool
+	// LaunchdDisabled (macOS) reports whether launchd has the job of that name disabled, so that
+	// install must `launchctl enable` it; nil means no.
+	LaunchdDisabled func(name string) bool
 }
 
 func (e Env) getenv(k string) string {
@@ -197,7 +200,11 @@ func (e Env) getenv(k string) string {
 // DefaultEnv is the process environment (no systemd manager environment).
 func DefaultEnv() Env {
 	h, _ := os.UserHomeDir()
-	return Env{Getenv: os.Getenv, HomeDir: h, ReadFile: os.ReadFile, UID: os.Getuid(), Quarantined: quarantined}
+	e := Env{Getenv: os.Getenv, HomeDir: h, ReadFile: os.ReadFile, UID: os.Getuid(), Quarantined: quarantined}
+	if runtime.GOOS == "darwin" {
+		e.LaunchdDisabled = launchdDisabled(e.UID)
+	}
+	return e
 }
 
 // HostEnv is DefaultEnv plus, on Linux, the systemd user manager's environment when the manager
@@ -270,8 +277,9 @@ func StartCommand(name, goos string) ([]string, error) {
 
 // StartCommands are the commands that start the installed daemon now. On Linux and Windows that is
 // StartCommand. On macOS a loaded LaunchAgent is kickstarted (`launchctl kickstart
-// gui/<uid>/<name>`); one that is not loaded (after `tbd stop`, which boots it out) is enabled and
-// bootstrapped again from its plist; a missing plist is ErrNotInstalled.
+// gui/<uid>/<name>`); one that is not loaded (after `tbd stop`, which boots it out) is bootstrapped
+// again from its plist, enabled first only if launchd has it disabled (or cannot say: see
+// darwinInstall for why not always); a missing plist is ErrNotInstalled.
 func StartCommands(ctx context.Context, r Runner, name, goos string, env Env) ([][]string, error) {
 	if goos != "darwin" {
 		c, err := StartCommand(name, goos)
@@ -300,7 +308,11 @@ func StartCommands(ctx context.Context, r Runner, name, goos string, env Env) ([
 		return nil, err
 	}
 	domain, _ := launchdDomain(env)
-	return [][]string{launchctl("enable", target), launchctl("bootstrap", domain, plist)}, nil
+	bootstrap := launchctl("bootstrap", domain, plist)
+	if disabled, err := LaunchdDisabled(ctx, r, s.Name, env); err == nil && !disabled {
+		return [][]string{bootstrap}, nil
+	}
+	return [][]string{launchctl("enable", target), bootstrap}, nil
 }
 
 // CheckInstalled returns nil when the autostart definition named name exists on goos, an error

@@ -159,12 +159,34 @@ func TestLogFileRotation(t *testing.T) {
 func TestRunErrorReachesLogFile(t *testing.T) {
 	home := t.TempDir()
 	logf := filepath.Join(home, "tbd.log")
-	if code, _, _ := runCLI(t, "", "--home", home, "run", "--log-file", logf); code == 0 {
-		t.Fatal("run without pairing succeeded")
+	code, _, e := runCLI(t, "", "--home", home, "run", "--log-file", logf)
+	if code != 1 {
+		t.Fatalf("run without pairing: exit %d", code)
 	}
 	b, err := os.ReadFile(logf)
 	if err != nil || !strings.Contains(string(b), "not paired") {
 		t.Fatalf("log file lacks the fatal error: %v %q", err, b)
+	}
+	// A terminal or a pipe still shows it; a regular file (launchd's tbd.stderr.log, which nothing
+	// rotates while KeepAlive restarts a failing start) does not get it a second time.
+	if !strings.Contains(e, "not paired") {
+		t.Errorf("stderr lacks the fatal error: %q", e)
+	}
+	ef, err := os.Create(filepath.Join(home, "tbd.stderr.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ef.Close()
+	if code := run([]string{"--home", home, "run", "--log-file", logf}, strings.NewReader(""), &bytes.Buffer{}, ef); code != 1 {
+		t.Fatalf("run without pairing, file stderr: exit %d", code)
+	}
+	if st, err := ef.Stat(); err != nil {
+		t.Fatal(err)
+	} else if st.Size() != 0 {
+		t.Errorf("the logged error was repeated on a regular-file stderr (%d bytes)", st.Size())
+	}
+	if b, _ := os.ReadFile(logf); strings.Count(string(b), "not paired") != 2 {
+		t.Errorf("log file: %q", b)
 	}
 }
 

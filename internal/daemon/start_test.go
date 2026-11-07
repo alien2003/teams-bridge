@@ -45,8 +45,10 @@ func (f *serviceFake) Run(_ context.Context, name string, args ...string) (strin
 		return "ERROR: The system cannot find the file specified.\r\n", errors.New("exit status 1")
 	case line == "launchctl print gui/501/tbd": // installed, but not loaded (after tbd stop)
 		return "Could not find service \"tbd\" in domain for user gui: 501\n", errors.New("exit status 113")
-	case line == "launchctl print gui/501", line == "launchctl enable gui/501/tbd":
+	case line == "launchctl print gui/501":
 		return "", nil
+	case line == "launchctl print-disabled gui/501": // not disabled: no enable
+		return "disabled services = {\n}\n", nil
 	case line == "systemctl --user start tbd.service" || line == "schtasks /run /tn tbd" ||
 		strings.HasPrefix(line, "launchctl bootstrap gui/501 ") && strings.HasSuffix(line, "/tbd.plist"):
 		l, err := AcquireLock(f.home)
@@ -74,8 +76,9 @@ func macEnv(t *testing.T, installed bool) *service.Env {
 
 func TestStart(t *testing.T) {
 	ctx := context.Background()
-	// Commands run when not installed / to start: launchd is asked first (print), then enabled and
-	// bootstrapped (the job is not loaded); the plist's absence alone means not installed.
+	// Commands run when not installed / to start: launchd is asked first (print, print-disabled),
+	// then the job, not loaded and not disabled, is bootstrapped; the plist's absence alone means not
+	// installed.
 	calls := map[string][2]int{"linux": {1, 2}, "windows": {1, 2}, "darwin": {0, 4}}
 	env := func(t *testing.T, goos string, installed bool) *service.Env {
 		if goos != "darwin" {

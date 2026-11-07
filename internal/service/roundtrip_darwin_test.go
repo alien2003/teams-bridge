@@ -22,9 +22,14 @@ import (
 // job's program a copy of this test binary (launchdProbe, see TestMain) under a path with a blank.
 // It checks the launchd semantics the daemon relies on: RunAtLoad with the exact argv, no restart
 // after a clean exit or SIGTERM, a restart after exit 1 and after SIGKILL, a re-install while it
-// runs (the unload wait), a bootout that stays stopped, StartCommands, and the uninstall. It skips
-// without a GUI domain (no one logged in at the screen), or fails with TBD_REQUIRE_LAUNCHD=1.
+// runs (the unload wait), a bootout that stays stopped, StartCommands, and the uninstall. Like
+// cmd/tbd's TestBinaryLaunchAgent it runs only on CI (GITHUB_ACTIONS=true) or with
+// TBD_TEST_LAUNCHD=1, as it loads a real job into the user's session; it skips without a GUI
+// domain (no one logged in at the screen), or fails with TBD_REQUIRE_LAUNCHD=1.
 func TestLaunchdRoundTrip(t *testing.T) {
+	if os.Getenv("GITHUB_ACTIONS") != "true" && os.Getenv("TBD_TEST_LAUNCHD") != "1" {
+		t.Skip("loads a launchd job tbd-test-* into the GUI domain: CI only, or TBD_TEST_LAUNCHD=1")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	r := ExecRunner{}
@@ -45,11 +50,19 @@ func TestLaunchdRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	realAgents := filepath.Join(userHome, "Library", "LaunchAgents")
-	before := snapshot(t, realAgents)
 
 	tmp := t.TempDir()
 	env.LaunchAgentsDir = filepath.Join(tmp, "LaunchAgents")
 	name := testName(t)
+	// The plist must never reach ~/Library/LaunchAgents. Only this job's name is checked there:
+	// cmd/tbd's TestBinaryLaunchAgent may write and remove its own tbd-test-* plist meanwhile.
+	inRealAgents := func(when string) {
+		t.Helper()
+		if m, _ := filepath.Glob(filepath.Join(realAgents, name+"*")); len(m) > 0 {
+			t.Errorf("%s: %q in %s", when, m, realAgents)
+		}
+	}
+	inRealAgents("before install")
 	target := domain + "/" + name
 	exe := copyTestBinary(t, filepath.Join(tmp, "bin dir"))
 	home := filepath.Join(tmp, launchdProbeMarker+" home")
@@ -165,9 +178,7 @@ func TestLaunchdRoundTrip(t *testing.T) {
 				_ = syscall.Kill(s.pid, syscall.SIGKILL)
 			}
 		}
-		if after := snapshot(t, realAgents); after != before {
-			t.Errorf("%s changed:\n--- before\n%s--- after\n%s", realAgents, before, after)
-		}
+		inRealAgents("after the test")
 	})
 
 	// 1. Install: RunAtLoad starts the job with exactly the plist's argv.
@@ -182,6 +193,7 @@ func TestLaunchdRoundTrip(t *testing.T) {
 	}
 	apply("install", plan)
 	s1 := waitStarts(1, 30*time.Second)
+	inRealAgents("after install")
 	if want := spec.Args(); strings.Join(s1.argv, "\x00") != strings.Join(want, "\x00") {
 		t.Errorf("argv through launchd = %q, want %q", s1.argv, want)
 	}
@@ -226,7 +238,8 @@ func TestLaunchdRoundTrip(t *testing.T) {
 	// 3. exit 1 → restarted after ThrottleInterval.
 	setMode("exit1")
 	kickstart()
-	waitStarts(2, 15*time.Second)
+	s2 := waitStarts(2, 15*time.Second)
+	waitExit(s2.pid) // it has read its mode: the next start may serve
 	setMode("serve")
 	s3 := waitStarts(3, 3*LaunchdThrottle*time.Second)
 
@@ -272,9 +285,10 @@ func TestLaunchdRoundTrip(t *testing.T) {
 	}
 	noRestart(7, "after bootout")
 
-	// 8. StartCommands on an unloaded job (enable + bootstrap), then uninstall.
+	// 8. StartCommands on an unloaded job (bootstrap; no enable, as it is not disabled), then
+	// uninstall.
 	cs, err := StartCommands(ctx, r, name, "darwin", env)
-	if err != nil || len(cs) != 2 || cs[1][1] != "bootstrap" {
+	if err != nil || len(cs) != 1 || cs[0][1] != "bootstrap" {
 		t.Fatalf("StartCommands: %q %v", cs, err)
 	}
 	for _, c := range cs {
@@ -297,6 +311,12 @@ func TestLaunchdRoundTrip(t *testing.T) {
 	}
 	if err := CheckInstalled(ctx, r, name, "darwin", env); err == nil {
 		t.Error("CheckInstalled after uninstall")
+	}
+	// Nothing ran `launchctl enable`, so launchd keeps no override for the label (D26).
+	if out, err := r.Run(ctx, "launchctl", "print-disabled", domain); err != nil {
+		t.Errorf("launchctl print-disabled: %v: %s", err, firstLine(out))
+	} else if strings.Contains(out, `"`+name+`"`) {
+		t.Errorf("launchd keeps an override for %s:\n%s", name, out)
 	}
 }
 

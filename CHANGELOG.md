@@ -31,6 +31,11 @@ tagged yet is marked "Unreleased" and gets its date when it is tagged.
 * At its next start, the daemon ends a headless browser that a crashed or killed daemon left
   running on its profile (log line `killed a browser left by a previous tbd`), instead of failing
   to start a new one.
+* `tbd run` and `tbd login` stop gracefully on SIGHUP, as on Ctrl+C (browser closed,
+  `daemon_stopping` pushed), so closing the Terminal window or losing the SSH session no longer
+  leaves the headless browser running; started with `nohup`, tbd keeps ignoring SIGHUP.
+* With `--log-file`, a fatal error is no longer written a second time to a stderr that is a regular
+  file (launchd's `tbd.stderr.log`, which a restart loop would otherwise grow without limit).
 
 ### Releases
 

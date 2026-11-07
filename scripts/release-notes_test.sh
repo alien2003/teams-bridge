@@ -38,9 +38,10 @@ has "footer" "$out" "Release certificate SHA-256: \`46:FC:"
 has "footer" "$out" "--signer-workflow example/repo/.github/workflows/release.yml"
 has "assets" "$out" "| \`tbd-linux-amd64\` |"
 has "assets" "$out" "| \`tbd-windows-amd64.exe\` |"
-has "assets/darwin" "$out" "| \`tbd-darwin-arm64\` | daemon for macOS, Apple Silicon (unsigned, not notarized: see README) |"
-has "assets/darwin" "$out" "| \`tbd-darwin-amd64\` | daemon for macOS, Intel (unsigned, not notarized: see README) |"
+has "assets/darwin" "$out" "| \`tbd-darwin-arm64\` | daemon for macOS, Apple Silicon (ad-hoc signed, not Developer-ID signed or notarized: see README) |"
+has "assets/darwin" "$out" "| \`tbd-darwin-amd64\` | daemon for macOS, Intel (not Developer-ID signed or notarized: see README) |"
 has "verify/macOS" "$out" "grep tbd-darwin-arm64 SHA256SUMS | shasum -a 256 -c -"
+hasnt "assets/darwin" "$out" "unsigned" # the arm64 binary carries the Go linker's ad-hoc signature
 
 commit "feat!: breaking thing"
 commit "chore: tidy"

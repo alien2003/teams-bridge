@@ -249,7 +249,9 @@ not been used against a real Teams account on a Mac yet, so reports are welcome.
   `tbd.log` in the data directory, and `tbd.stderr.log` next to it holds only what happens before
   that log is open. `tbd status` adds a `launchd:` line. macOS may announce "Background Items
   Added": tbd runs only while it stays allowed in System Settings → General → Login Items
-  (*Login Items & Extensions* on newer versions).
+  (*Login Items & Extensions* on newer versions). A `tbd run` started in Terminal stops, browser
+  included, when you close that window or lose the SSH session; the LaunchAgent is what keeps tbd
+  running.
 * **Keychain:** the daemon's browser does not use your login keychain (`--use-mock-keychain`), so
   there is no keychain prompt and nothing is shared with your own Edge. The trade-off: the
   profile's cookies (the Teams session) are encrypted at rest with a fixed, publicly known key, so

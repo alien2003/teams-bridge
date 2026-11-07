@@ -60,8 +60,8 @@ $notes
 | \`teams-bridge.apk\` | Android app, signed by the release key |
 | \`tbd-linux-amd64\` | daemon for Linux and WSL (static) |
 | \`tbd-windows-amd64.exe\` | daemon for Windows |
-| \`tbd-darwin-arm64\` | daemon for macOS, Apple Silicon (unsigned, not notarized: see README) |
-| \`tbd-darwin-amd64\` | daemon for macOS, Intel (unsigned, not notarized: see README) |
+| \`tbd-darwin-arm64\` | daemon for macOS, Apple Silicon (ad-hoc signed, not Developer-ID signed or notarized: see README) |
+| \`tbd-darwin-amd64\` | daemon for macOS, Intel (not Developer-ID signed or notarized: see README) |
 | \`teams-bridge-mapping.txt.gz\` | R8 mapping, to read an obfuscated stack trace |
 | \`SHA256SUMS\` | SHA-256 of the files above |
 

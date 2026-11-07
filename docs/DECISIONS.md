@@ -948,6 +948,14 @@ Browser (`internal/browser`):
   when SIGTERM is ignored), and the real browser: a helper process launches it and is SIGKILLed,
   and the next `Launch` on the same home must succeed with nothing of the old group left (on Linux
   Pdeathsig gets there first; on macOS the log line must appear).
+* **SIGHUP stops tbd gracefully** (every Unix): a closed Terminal window or a dropped SSH session
+  sends SIGHUP to `tbd run` or `tbd login` in the foreground, and Go's default action would end tbd
+  without closing the browser, which runs in its own process group and gets no signal; on macOS,
+  with no Pdeathsig, the headless Edge would keep the Teams session open until the next start.
+  `signalContext` therefore stops on SIGHUP as on SIGINT and SIGTERM (browser closed,
+  `daemon_stopping` pushed, lock released), unless tbd was started with SIGHUP ignored (`nohup`,
+  `signal.Ignored`), which it keeps ignoring. Tested on every Unix (`TestBinarySIGHUP`: exit 0, one
+  `daemon_stopping`, the browser's group gone; under `trap "" HUP` it keeps running).
 * **`tbd login` ends when the window closes:** on macOS closing the last window does not quit the
   browser, so `Login` also ends when no page target is left (re-counted with `Target.getTargets`
   on every target destroyed or crashed, and every 2 s), then closes the browser itself; on every
@@ -984,21 +992,30 @@ Service (`internal/service`, `internal/daemon`):
   it back into the exact argv, and the runner's round trip runs `plutil -lint` and
   `plutil -convert json`.
 * **Logs:** `--log-file <home>/tbd.log` on macOS too (rotated at 10 MiB, as under the Windows task):
-  launchd keeps no journal and rotates nothing, so its stdio file gets only what happens before the
-  log is open.
+  launchd keeps no journal and rotates nothing, so its stdio file gets only what tbd cannot write
+  to its log (a panic, a bad command line, a log file that cannot be opened). A fatal error once
+  the log is open is written there and not repeated on a stderr that is a regular file, since
+  KeepAlive restarts a failing start (not paired, a bad config, the lock held) every 10 s and would
+  grow `tbd.stderr.log` without limit; a terminal or a pipe still shows it.
 * **Install** (`Plan` gained `Dirs` and `Unload`, run by the generic `Apply` and printed by
   `--dry-run`): create the home (launchd opens the stdio file before it starts tbd and creates no
   directory) → write the plist → unload `gui/<uid>/tbd` if `launchctl print` finds it (bootout,
   whose exit status is only advisory, then poll `print` every 250 ms for up to 40 s: a bootstrap
-  issued while the removal is pending fails with an I/O error) → `launchctl enable` (undoes an
-  earlier `launchctl disable`, which would block loading now and at every login) → `launchctl
-  bootstrap gui/<uid> <plist>`. A plan with `NoStart` (tests use it) writes and enables only. Uninstall (best effort): unload, remove the plist. Refused as root ("run tbd install
+  issued while the removal is pending fails with an I/O error) → `launchctl enable`, only when
+  `launchctl print-disabled gui/<uid>` lists the label as disabled (`=> disabled`, older macOS
+  `=> true`; an earlier `launchctl disable` would block loading now and at every login; a note says
+  so) → `launchctl bootstrap gui/<uid> <plist>`. Not unconditionally: launchd keeps every enable
+  as a lasting override in its per-user database (listed by `print-disabled` and in the "disabled
+  services" block of `launchctl print gui/<uid>`), which bootout, uninstall and no other launchctl
+  verb remove; a job re-enabled this way keeps its `=> enabled` entry after `tbd uninstall`
+  (harmless). When launchd cannot be asked, install enables. A plan with `NoStart` (tests use it)
+  writes the plist (and enables a disabled job) only. Uninstall (best effort): unload, remove the plist. Refused as root ("run tbd install
   as yourself, not with sudo": `gui/0` is not the user's session). The notes name `launchctl
   print`, both log files, the "Background Items Added" notice (the user must leave tbd allowed in
   System Settings > General > Login Items & Extensions), and, when the binary carries
   `com.apple.quarantine` (`getxattr`), the `xattr -d` command.
-* **Start / stop:** `tbd start` kickstarts a loaded job and enables and bootstraps one that is not
-  loaded (after `tbd stop`); no plist is "not installed". `tbd stop` boots the job out when the
+* **Start / stop:** `tbd start` kickstarts a loaded job and bootstraps one that is not loaded
+  (after `tbd stop`), enabling it first under the same rule as install; no plist is "not installed". `tbd stop` boots the job out when the
   lock holder is the job's own process (`pid = N` in `launchctl print`): launchd sends SIGTERM,
   SIGKILL after `ExitTimeOut`, and never restarts a job whose removal is pending, so neither a
   SIGTERM that arrives before the handler is installed, a non-zero shutdown nor the forced kill can
@@ -1029,9 +1046,14 @@ Service (`internal/service`, `internal/daemon`):
   on real processes, `TestLaunchdRoundTrip` (a `tbd-test-*` job, its plist in a temporary
   directory, run by a copy of the test binary: RunAtLoad with the exact argv, no restart after
   SIGTERM or a clean exit 0, restarts after exit 1 and SIGKILL, a re-install while running, a
-  bootout that stays down, start after it, uninstall; `~/Library/LaunchAgents` unchanged) and
-  `TestBinaryLaunchAgent` (the real `tbd install`, `status`, `stop`, `start`, a SIGKILL, and
-  `uninstall` against fake Teams; CI only).
+  bootout that stays down, start after it without an enable, uninstall; no plist of its name in
+  `~/Library/LaunchAgents` and no launchd override for it afterwards) and `TestBinaryLaunchAgent`
+  (the real `tbd install`, `status`, `stop`, `start`, a SIGKILL, and `uninstall` against fake
+  Teams; no browser on its profile left, checked with `pgrep -f --`). Both load a real job into the
+  user's session, so both run only on CI (`GITHUB_ACTIONS=true`) or with `TBD_TEST_LAUNCHD=1`. The
+  round trip checks only its own name in `~/Library/LaunchAgents`, not the whole directory:
+  `go test` runs packages in parallel, and `TestBinaryLaunchAgent` writes and removes its own
+  `tbd-test-*` plist there meanwhile.
 
 CI (`.github/workflows/ci.yml`, the `go` job):
 
@@ -1056,13 +1078,16 @@ CI (`.github/workflows/ci.yml`, the `go` job):
   keychain holds `Microsoft Edge Safe Storage` (existence only, never the secret) and how many lines
   of the Notification Center settings (`com.apple.ncprefs`) name Edge's bundle; `after` (always,
   also after a failure) it writes paths and counts only to the log and the step summary, and fails
-  on a new keychain item (the mock keychain was ignored, risk R2), a `tbd-test-*` launchd job or
+  on a new keychain item (the browser ignored `--use-mock-keychain`), a loaded `tbd-test-*` launchd
+  job (a name in `launchctl print gui/<uid>` counts only if `launchctl print gui/<uid>/<name>`
+  finds it: the domain print also lists launchd's lasting overrides) or a
   `~/Library/LaunchAgents/tbd-test-*` file, a job or plist named `tbd`, the default data directory
   or a `tbd-test-*` directory under `~/Library`, or a browser still running on a `--user-data-dir`
   10 s after the tests. Reported only: the files under `~/Library` newer than the stamp whose path
   names a browser, Microsoft, tbd, LaunchAgents, background items or Crashpad (whether
-  `BREAKPAD_DUMP_LOCATION` and `--disk-cache-dir` hold), and a change of the Notification Center
-  count (risk R7, a warning). It runs with the runner's bash and is in the bash 3.2 guard.
+  `BREAKPAD_DUMP_LOCATION` and `--disk-cache-dir` hold), the number of launchd overrides naming
+  `tbd-test-*` (`launchctl print-disabled`), and a change of the Notification Center count (a
+  warning: whether a headless Edge registers for Notification Center banners on the Mac). It runs with the runner's bash and is in the bash 3.2 guard.
 * **Not on macOS:** lint (darwin is vetted and staticchecked by `lint.sh` on Linux), lint-ci and
   the Android job.
 
@@ -1078,7 +1103,7 @@ Items, the mock-keychain trade-off, no notifications on the Mac, awake and logge
 troubleshooting entries (not starting at login, no browser found, Desktop/Documents/Downloads/
 iCloud Drive privacy prompts a LaunchAgent cannot answer, "Apple could not verify"). It says that
 macOS is tested on the runners against fake Teams and has not yet met a real Teams account on a
-Mac (risk R17). SECURITY.md states the at-rest trade-off and the missing Developer ID;
+Mac. SECURITY.md states the at-rest trade-off and the missing Developer ID;
 CONTRIBUTING.md the macOS legs and the bash 3.2 rule; the bug report form offers macOS Apple
 Silicon and Intel. `OUTSIDE.md` is unchanged: on the dev PC the port only cross-builds into
 `dist/`, `.tmp/` and `.xdg/`; everything macOS touches happens on throwaway runners.

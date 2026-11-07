@@ -25,8 +25,10 @@ const LaunchdThrottle = 10
 const LaunchdExitTimeout = 30
 
 // StderrLog is launchd's file for the daemon's stdout and stderr inside the data directory: it
-// gets only what happens before the log file is open (panics, a bad command line). The log
-// itself is tbd.log (--log-file), which tbd rotates; launchd rotates nothing.
+// gets only what tbd cannot write to its log, tbd.log (--log-file, which tbd rotates): a panic, a
+// bad command line, a log file that cannot be opened. A fatal error once the log is open goes to
+// tbd.log alone, not repeated here: launchd rotates nothing, and KeepAlive restarts a failing
+// start every ThrottleInterval.
 const StderrLog = "tbd.stderr.log"
 
 // ErrNoGUIDomain means launchd has no GUI domain for the user: nobody is logged in at the Mac's
@@ -171,9 +173,13 @@ func darwinInstall(s Spec, env Env) (Plan, error) {
 		Dirs:  []string{s.Home},
 		Files: []File{{Path: file, Content: []byte(plist), Mode: 0o644}},
 	}
-	// enable: a job someone disabled (`launchctl disable`) would otherwise refuse to load, now and
-	// at every login. It starts nothing.
-	p.Commands = [][]string{launchctl("enable", target)}
+	// enable, only for a job someone disabled (`launchctl disable`), which would otherwise refuse to
+	// load, now and at every login. It starts nothing, but launchd keeps every enable as a lasting
+	// override that no launchctl verb removes, so a job that is not disabled is left alone.
+	if env.LaunchdDisabled != nil && env.LaunchdDisabled(s.Name) {
+		p.Commands = [][]string{launchctl("enable", target)}
+		p.Notes = append(p.Notes, fmt.Sprintf("%s was disabled in launchd (launchctl disable); install enables it again.", target))
+	}
 	logs := fmt.Sprintf("logs: %s (early errors: %s)", path.Join(s.Home, "tbd.log"), path.Join(s.Home, StderrLog))
 	if s.NoStart {
 		p.Notes = append(p.Notes, fmt.Sprintf("LaunchAgent %s starts tbd at your next login (%s); install does not start it now (tbd start).\nL%s", s.Name, domain, logs[1:]))
@@ -188,7 +194,7 @@ func darwinInstall(s Spec, env Env) (Plan, error) {
 		"(System Settings > General > Login Items & Extensions). It needs you logged in, and the Mac awake.")
 	if env.Quarantined != nil && env.Quarantined(s.Exe) {
 		p.Notes = append(p.Notes, fmt.Sprintf("%s carries com.apple.quarantine (downloaded with a browser): Gatekeeper refuses\n"+
-			"this unsigned binary until you allow it. Run once: xattr -d com.apple.quarantine %s", s.Exe, shQuote(s.Exe)))
+			"this binary, which is not notarized, until you allow it. Run once: xattr -d com.apple.quarantine %s", s.Exe, shQuote(s.Exe)))
 	}
 	return p, nil
 }
@@ -233,6 +239,63 @@ func unloadJob(ctx context.Context, r Runner, goos, target string, out func(stri
 			return ctx.Err()
 		case <-time.After(unloadPoll):
 		}
+	}
+}
+
+// LaunchdDisabled reports whether launchd has the job name disabled in the user's GUI domain
+// (`launchctl print-disabled gui/<uid>`). Only a disabled job needs `launchctl enable`.
+func LaunchdDisabled(ctx context.Context, r Runner, name string, env Env) (bool, error) {
+	if r == nil {
+		r = ExecRunner{}
+	}
+	s, err := Spec{Name: name}.normalize("darwin", false)
+	if err != nil {
+		return false, err
+	}
+	domain, err := launchdDomain(env)
+	if err != nil {
+		return false, err
+	}
+	out, err := r.Run(ctx, "launchctl", "print-disabled", domain)
+	if err != nil {
+		return false, fmt.Errorf("launchctl print-disabled %s: %w: %s", domain, err, firstLine(out))
+	}
+	return parseLaunchdDisabled(out, s.Name), nil
+}
+
+// parseLaunchdDisabled reads `launchctl print-disabled` output: inside its "disabled services"
+// block a line `"<label>" => disabled` (older macOS: `=> true`) marks a disabled job; `=> enabled`
+// (`=> false`) is an override that enables it. Other blocks are skipped.
+func parseLaunchdDisabled(out, label string) bool {
+	in := false
+	for _, ln := range strings.Split(out, "\n") {
+		t := strings.TrimSpace(ln)
+		switch {
+		case strings.HasSuffix(t, "{"):
+			in = strings.HasPrefix(t, "disabled services")
+			continue
+		case strings.HasPrefix(t, "}"):
+			in = false
+			continue
+		}
+		if !in {
+			continue
+		}
+		if k, v, ok := strings.Cut(t, " => "); ok && k == `"`+label+`"` {
+			return v == "disabled" || v == "true"
+		}
+	}
+	return false
+}
+
+// launchdDisabled is DefaultEnv's Env.LaunchdDisabled on macOS. When launchd cannot be asked it
+// says yes: an enable too many leaves an override behind, a missing one a job that never loads.
+func launchdDisabled(uid int) func(string) bool {
+	return func(name string) bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		d, err := LaunchdDisabled(ctx, ExecRunner{}, name, Env{UID: uid})
+		return d || err != nil
 	}
 }
 

@@ -120,7 +120,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case errors.Is(err, flag.ErrHelp):
 		return 0
 	default:
-		fmt.Fprintln(stderr, "tbd:", err)
+		var le loggedError
+		if !errors.As(err, &le) || !regularFile(stderr) {
+			fmt.Fprintln(stderr, "tbd:", err)
+		}
 		var ce interface{ ExitCode() int }
 		if errors.As(err, &ce) {
 			return ce.ExitCode()
@@ -132,6 +135,24 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 type usageError struct{ msg string }
 
 func (u usageError) Error() string { return u.msg }
+
+// loggedError is an error `tbd run --log-file` has already written to its log file. run does not
+// repeat it on a stderr that is a regular file: under launchd that is tbd.stderr.log, which
+// nothing rotates, and a KeepAlive restart loop would add a line every ThrottleInterval.
+type loggedError struct{ err error }
+
+func (e loggedError) Error() string { return e.err.Error() }
+func (e loggedError) Unwrap() error { return e.err }
+
+// regularFile reports whether w is a regular file (not a terminal, a pipe or /dev/null).
+func regularFile(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	st, err := f.Stat()
+	return err == nil && st.Mode().IsRegular()
+}
 
 // subFlags parses a subcommand's flags; it also accepts --home/--log-level after the command.
 func (g *globals) subFlags(name string, args []string, define func(fs *flag.FlagSet)) error {
@@ -183,9 +204,21 @@ func newLogger(w io.Writer, level string) *slog.Logger {
 	return slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: l}))
 }
 
-// signalContext is cancelled on SIGINT/SIGTERM (Ctrl+C / Ctrl+Break on Windows).
+// signalContext is cancelled on SIGINT/SIGTERM (Ctrl+C / Ctrl+Break on Windows) and, on Unix,
+// SIGHUP: a closed Terminal window or a dropped SSH session must shut down as gracefully as tbd
+// stop (browser closed, daemon_stopping pushed), since on macOS nothing else ends the headless
+// browser in its own process group. A process started with SIGHUP ignored (nohup) keeps ignoring it.
 func signalContext() (context.Context, context.CancelFunc) {
-	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	return signal.NotifyContext(context.Background(), stopSignals()...)
+}
+
+// stopSignals are the signals signalContext stops on.
+func stopSignals() []os.Signal {
+	sigs := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	if runtime.GOOS != "windows" && !signal.Ignored(syscall.SIGHUP) {
+		sigs = append(sigs, syscall.SIGHUP)
+	}
+	return sigs
 }
 
 func (g *globals) cmdRun(args []string) (err error) {
@@ -213,6 +246,7 @@ func (g *globals) cmdRun(args []string) (err error) {
 		defer func() {
 			if err != nil {
 				fmt.Fprintf(f, "time=%s level=ERROR msg=\"tbd run: exiting\" err=%q\n", time.Now().Format(time.RFC3339), err.Error())
+				err = loggedError{err}
 			}
 			f.Close()
 		}()

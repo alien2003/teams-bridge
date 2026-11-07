@@ -38,8 +38,8 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// launchdProbe is one start of the LaunchAgent probe. It appends "start <pid> <argv as JSON>" to
-// <home>/starts.log, then acts as <home>/mode says: "exit0" and "exit1" exit with that status at
+// launchdProbe is one start of the LaunchAgent probe. It reads <home>/mode, appends "start <pid>
+// <argv as JSON>" to <home>/starts.log, then acts as the mode says: "exit0" and "exit1" exit with that status at
 // once; "serve" (the default) runs until SIGTERM, appends "term <pid>" and exits 0, as tbd does.
 func launchdProbe(home string, args []string) int {
 	term := make(chan os.Signal, 1)
@@ -59,10 +59,11 @@ func launchdProbe(home string, args []string) int {
 		}
 		return err
 	}
+	// The mode first: once the start line is there, the test may already write the next mode.
+	mode, _ := os.ReadFile(filepath.Join(home, "mode"))
 	if appendLine(fmt.Sprintf("start %d %s", os.Getpid(), b)) != nil {
 		return 3
 	}
-	mode, _ := os.ReadFile(filepath.Join(home, "mode"))
 	switch strings.TrimSpace(string(mode)) {
 	case "exit0":
 		return 0

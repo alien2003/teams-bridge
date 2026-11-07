@@ -49,7 +49,6 @@ Would unload, if loaded (then wait until launchd has removed it):
   launchctl bootout gui/501/tbd
 
 Would run:
-  launchctl enable gui/501/tbd
   launchctl bootstrap gui/501 /Users/u/Library/LaunchAgents/tbd.plist
 
 LaunchAgent tbd starts tbd at every login (gui/501); install also (re)starts it now.

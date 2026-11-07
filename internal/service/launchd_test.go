@@ -78,8 +78,8 @@ func TestLaunchdPlans(t *testing.T) {
 	}
 	equalLines(t, "dirs", p.Dirs, []string{macSpec.Home})
 	equalLines(t, "unload", p.Unload, []string{"gui/501/tbd"})
+	// Not disabled: no enable, which launchd would keep as a lasting override.
 	equalLines(t, "commands", cmdLines(p.Commands), []string{
-		"launchctl enable gui/501/tbd",
 		"launchctl bootstrap gui/501 /Users/u/Library/LaunchAgents/tbd.plist",
 	})
 	if p.BestEffort {
@@ -91,7 +91,24 @@ func TestLaunchdPlans(t *testing.T) {
 	if len(p.Unload) != 0 {
 		t.Errorf("no-start unloads %q", p.Unload)
 	}
-	equalLines(t, "no-start", cmdLines(p.Commands), []string{"launchctl enable gui/501/tbd"})
+	if len(p.Commands) != 0 {
+		t.Errorf("no-start runs %q", cmdLines(p.Commands))
+	}
+	// Disabled (launchctl disable): enabled again, before the bootstrap, with a note.
+	env := macEnv()
+	var asked []string
+	env.LaunchdDisabled = func(n string) bool { asked = append(asked, n); return true }
+	p, _ = InstallPlan(macSpec, "darwin", env)
+	equalLines(t, "disabled", cmdLines(p.Commands), []string{
+		"launchctl enable gui/501/tbd",
+		"launchctl bootstrap gui/501 /Users/u/Library/LaunchAgents/tbd.plist",
+	})
+	equalLines(t, "asked", asked, []string{"tbd"})
+	if !strings.Contains(strings.Join(p.Notes, "\n"), "gui/501/tbd was disabled in launchd") {
+		t.Errorf("no note on the enable: %q", p.Notes)
+	}
+	p, _ = InstallPlan(ns, "darwin", env)
+	equalLines(t, "disabled, no-start", cmdLines(p.Commands), []string{"launchctl enable gui/501/tbd"})
 
 	u, err := UninstallPlan(Spec{Name: "tbd-test-x"}, "darwin", Env{HomeDir: "/Users/u", UID: 501, LaunchAgentsDir: "/tmp/la"})
 	if err != nil {
@@ -193,6 +210,7 @@ type launchdFake struct {
 	pending  int
 	never    bool
 	noDomain bool
+	disabled string // print-disabled's value for the job: "", "disabled", "enabled", "true", "fail"
 	printOut string
 	calls    []string
 }
@@ -221,6 +239,15 @@ func (f *launchdFake) Run(_ context.Context, name string, args ...string) (strin
 			return "Bad request.\nCould not find domain for port\n", errors.New("exit status 5")
 		}
 		return domain + " = {\n}\n", nil
+	case "launchctl print-disabled " + domain:
+		if f.disabled == "fail" {
+			return "Bad request.\n", errors.New("exit status 5")
+		}
+		out := "disabled services = {\n\t\"com.example.other\" => disabled\n"
+		if f.disabled != "" {
+			out += "\t\"" + f.target[strings.LastIndexByte(f.target, '/')+1:] + "\" => " + f.disabled + "\n"
+		}
+		return out + "}\n", nil
 	case "launchctl bootout " + f.target:
 		if !f.loaded {
 			return "Boot-out failed: 3: No such process\n", errors.New("exit status 3")
@@ -349,6 +376,42 @@ func TestParseLaunchdPrint(t *testing.T) {
 	}
 }
 
+// launchdDisabledSample is `launchctl print-disabled gui/501` in the shape macOS prints it
+// (synthetic labels).
+const launchdDisabledSample = `disabled services = {
+	"com.example.off" => disabled
+	"tbd" => enabled
+	"tbd-test-0123456789ab" => disabled
+	"com.example.old" => true
+}
+
+login item associations = {
+	"tbd-test-aaaaaaaaaaaa" => disabled
+}
+`
+
+func TestParseLaunchdDisabled(t *testing.T) {
+	for label, want := range map[string]bool{
+		"tbd": false, "tbd-test-0123456789ab": true, "com.example.old": true, "com.example.off": true,
+		"tbd-test-aaaaaaaaaaaa": false, "tbd-test": false, "absent": false,
+	} {
+		if got := parseLaunchdDisabled(launchdDisabledSample, label); got != want {
+			t.Errorf("%s: %v, want %v", label, got, want)
+		}
+	}
+	f := &launchdFake{target: "gui/501/tbd", disabled: "disabled"}
+	if d, err := LaunchdDisabled(context.Background(), f, "", macEnv()); err != nil || !d {
+		t.Errorf("LaunchdDisabled: %v %v", d, err)
+	}
+	f.disabled = "fail"
+	if _, err := LaunchdDisabled(context.Background(), f, "", macEnv()); err == nil {
+		t.Error("print-disabled failure not reported")
+	}
+	if _, err := LaunchdDisabled(context.Background(), f, "", Env{UID: 0}); err == nil {
+		t.Error("root accepted")
+	}
+}
+
 func TestQueryLaunchdAndStart(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("darwin paths on disk need a Unix file system")
@@ -373,7 +436,7 @@ func TestQueryLaunchdAndStart(t *testing.T) {
 		t.Errorf("CheckInstalled: %v", err)
 	}
 
-	// Installed, not loaded (after tbd stop): enable + bootstrap.
+	// Installed, not loaded (after tbd stop), not disabled: bootstrap only.
 	job, err := QueryLaunchd(ctx, f, "", env)
 	if err != nil || job.Loaded {
 		t.Fatalf("not loaded: %+v %v", job, err)
@@ -382,7 +445,19 @@ func TestQueryLaunchdAndStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	equalLines(t, "start, not loaded", cmdLines(cs), []string{"launchctl enable " + target, "launchctl bootstrap gui/501 " + plist})
+	equalLines(t, "start, not loaded", cmdLines(cs), []string{"launchctl bootstrap gui/501 " + plist})
+	// Enabled only when launchd has it disabled, or cannot say.
+	for _, d := range []string{"disabled", "true", "fail"} {
+		cs, err = StartCommands(ctx, &launchdFake{target: target, disabled: d}, "", "darwin", env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		equalLines(t, "start, not loaded, "+d, cmdLines(cs), []string{"launchctl enable " + target, "launchctl bootstrap gui/501 " + plist})
+	}
+	for _, d := range []string{"enabled", "false"} {
+		cs, _ = StartCommands(ctx, &launchdFake{target: target, disabled: d}, "", "darwin", env)
+		equalLines(t, "start, not loaded, "+d, cmdLines(cs), []string{"launchctl bootstrap gui/501 " + plist})
+	}
 	if got := LaunchdStatus(ctx, f, "", env); got != target+" installed, not loaded (tbd start)" {
 		t.Errorf("status: %q", got)
 	}

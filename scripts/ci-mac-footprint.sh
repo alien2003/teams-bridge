@@ -5,11 +5,12 @@
 #   ci-mac-footprint.sh after    report (paths and counts only, never contents) to stdout and the
 #                                step summary; exit 1 if the tests left something that must not stay
 # Fails on: a new "Microsoft Edge Safe Storage" keychain item (the browser ignored
-# --use-mock-keychain), a tbd-test-* launchd job or ~/Library/LaunchAgents/tbd-test-* file, a job or
-# plist named tbd (tests must never touch the user's own job), the default data directory, a
-# tbd-test-* directory under ~/Library, or a browser process still running on a --user-data-dir.
+# --use-mock-keychain), a loaded tbd-test-* launchd job or a ~/Library/LaunchAgents/tbd-test-* file,
+# a job or plist named tbd (tests must never touch the user's own job), the default data directory,
+# a tbd-test-* directory under ~/Library, or a browser process still running on a --user-data-dir.
 # Reported only: files under ~/Library newer than the stamp whose path names a browser, tbd,
-# LaunchAgents or background items, and Notification Center lines naming Edge (risk R7).
+# LaunchAgents or background items, launchd's overrides naming tbd-test-*, and Notification Center
+# lines naming Edge (whether a headless Edge registers for Notification Center banners on the Mac).
 # The macOS runners run it with bash 3.2 (scripts/bash32_test.sh checks it).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -88,9 +89,18 @@ if [[ "$nc_after" != "$nc_before" ]]; then
   echo "::warning title=macOS footprint::Notification Center settings naming Edge changed ($nc_before -> $nc_after)"
 fi
 
-jobs="$(launchctl print "gui/$(id -u)" 2>/dev/null | command grep -o 'tbd-test-[0-9a-f]*' | sort -u || true)"
-echo "- tbd-test-* launchd jobs left: $(printf '%s' "$jobs" | command grep -c . || true)" >>"$out"
-[[ -z "$jobs" ]] || problem "tbd-test-* launchd jobs left: $(echo "$jobs" | paste -sd ' ' -)"
+# The domain print also lists launchd's lasting enable/disable overrides ("disabled services"),
+# which no launchctl verb removes: a name counts as a job left only if launchd has it loaded.
+domain="gui/$(id -u)"
+names="$(launchctl print "$domain" 2>/dev/null | command grep -o 'tbd-test-[0-9a-f]*' | sort -u || true)"
+jobs=""
+for n in $names; do
+  if launchctl print "$domain/$n" >/dev/null 2>&1; then jobs="$jobs $n"; fi
+done
+echo "- tbd-test-* launchd jobs left:${jobs:- none}" >>"$out"
+[[ -z "$jobs" ]] || problem "tbd-test-* launchd jobs left:$jobs"
+overrides="$(launchctl print-disabled "$domain" 2>/dev/null | command grep -c 'tbd-test-' || true)"
+echo "- launchd overrides naming tbd-test-* (launchctl print-disabled, report only): ${overrides:-0}" >>"$out"
 if launchctl print "gui/$(id -u)/tbd" >/dev/null 2>&1; then
   problem "a launchd job named tbd exists (tests must use tbd-test-*)"
 fi

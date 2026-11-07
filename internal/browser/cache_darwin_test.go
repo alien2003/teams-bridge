@@ -17,9 +17,10 @@ import (
 
 // TestDarwinDiskCacheStaysInHome runs the real browser with a home under the real
 // ~/Library/Application Support (where the default data directory lives) and checks that its disk
-// cache lands in <home>/cache, not in ~/Library/Caches/<same name>, where Chromium maps the cache
-// of a profile under Application Support by default (D26, risk R5). It writes under the real
-// ~/Library, so it runs only on GitHub's runners (GITHUB_ACTIONS=true), and removes both paths.
+// cache lands in <home>/cache, not in ~/Library/Caches/<same name>, outside the data directory,
+// where Chromium maps the cache of a profile under Application Support by default (D26). It writes
+// under the real ~/Library, so it runs only on GitHub's runners (GITHUB_ACTIONS=true), and removes
+// both paths.
 func TestDarwinDiskCacheStaysInHome(t *testing.T) {
 	if os.Getenv("GITHUB_ACTIONS") != "true" {
 		t.Skip("writes under the real ~/Library: runs on GitHub's macOS runners only")

@@ -45,9 +45,6 @@ Would write /Users/u/Library/LaunchAgents/tbd.plist (mode 0644):
 </plist>
 (end of /Users/u/Library/LaunchAgents/tbd.plist)
 
-Would run:
-  launchctl enable gui/501/tbd
-
 LaunchAgent tbd starts tbd at your next login (gui/501); install does not start it now (tbd start).
 Logs: /Users/u/Library/Application Support/tbd/tbd.log (early errors: /Users/u/Library/Application Support/tbd/tbd.stderr.log)
 
