@@ -182,7 +182,7 @@ func TestParseProcArgs2(t *testing.T) {
 // Chromium's macOS mapping of a profile's cache, and the removal of the empty tree it leaves there
 // (D26), on every OS.
 func TestMappedCacheDir(t *testing.T) {
-	uh := filepath.FromSlash("/Users/u")
+	uh := t.TempDir() // absolute on every OS (a path without a drive is not absolute on Windows)
 	as := filepath.Join(uh, "Library", "Application Support")
 	cases := map[string]string{
 		filepath.Join(as, "tbd", "profile", "tbd"): filepath.Join(uh, "Library", "Caches", "tbd", "profile", "tbd"),
