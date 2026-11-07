@@ -2,43 +2,27 @@
 # Grep every tracked or would-be-tracked file for private keys and tokens (BRIEF §9).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-patterns=(
-  '-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----'   # secrets-check: allow
-  '"private_key"[[:space:]]*:[[:space:]]*"-----BEGIN'
-  'AIza[0-9A-Za-z_-]{35}'          # Google API key  secrets-check: allow
-  'ya29\.[0-9A-Za-z_-]{20,}'       # Google OAuth access token
-  '1//[0-9A-Za-z_-]{30,}'          # Google OAuth refresh token
-  'gh[pousr]_[0-9A-Za-z]{30,}'     # GitHub tokens
-  'github_pat_[0-9A-Za-z_]{30,}'
-  'AKIA[0-9A-Z]{16}'               # AWS access key id
-  'xox[abprs]-[0-9A-Za-z-]{10,}'   # Slack
-  'secret[[:space:]]*=[[:space:]]*"[A-Z2-7]{26}"'   # a tbd pairing secret in a config file  secrets-check: allow
-)
+source scripts/secrets-lib.sh
 files=()
 while IFS= read -r -d '' f; do [[ -f "$f" ]] && files+=( "$f" ); done < <(git ls-files -co --exclude-standard -z)
 hits=0
-for p in "${patterns[@]}"; do
+for p in "${SECRET_PATTERNS[@]}"; do
   set +e
   out="$(command grep -EnI -- "$p" "${files[@]}")"; rc=$?
   set -e
   (( rc > 1 )) && { echo "secrets-check: grep failed (rc=$rc) for pattern $p"; exit 2; }
-  out="$(printf '%s\n' "$out" | command grep -v 'secrets-check: allow' || true)"
+  out="$(printf '%s\n' "$out" | command grep -vF "$SECRET_ALLOW_MARKER" || true)"
   if [[ -n "$out" ]]; then echo "$out"; hits=1; fi
 done
 # A local, git-ignored stop list of strings that must never enter the repository (real tenant,
 # team, channel and conversation ids and names). One string per line; never committed or printed.
 # It lives in the MAIN checkout's .local/ (found from any worktree); a missing list is a failure
 # unless TBD_NO_DENYLIST=1 says so explicitly (CI, fresh clones).
-common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || echo "$PWD/.git")"
-denylist="${TBD_DENYLIST:-$(dirname "$common")/.local/denylist.txt}"
+denylist="$(denylist_path)"
 if [[ -s "$denylist" ]]; then
-  tmpd="${TMPDIR:-$(dirname "$common")/.tmp}"; mkdir -p "$tmpd"
-  pat="$(mktemp "$tmpd/denylist.XXXXXX")"
+  pat="$(mktemp "$(scratch_dir)/denylist.XXXXXX")"
   trap 'rm -f "$pat"' EXIT
-  # each entry, plus GUID-shaped entries without their dashes
-  { command grep -v '^[[:space:]]*$' "$denylist"
-    command grep -E '^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$' "$denylist" | tr -d '-'
-  } > "$pat"
+  denylist_patterns "$denylist" "$pat"
   set +e
   hit="$(command grep -lIiF -f "$pat" -- "${files[@]}")"; rc=$?
   set -e
@@ -54,7 +38,7 @@ fi
 # Files that must never be committed, whatever their content.
 for f in "${files[@]}"; do
   case "$f" in
-    android/app/google-services.json|*.sa.json|.env.local|*.keystore|*.jks|*.p12|*.pfx|*.pem|*.key) echo "forbidden file: $f"; hits=1 ;;
+    android/app/google-services.json|*.sa.json|.env.local|*.keystore|*.jks|*.p12|*.pfx|*.pem|*.key|config.toml|*/config.toml|OUTSIDE.local.md|.local/*) echo "forbidden file: $f"; hits=1 ;;
   esac
 done
 if (( hits )); then echo "secrets-check: FAIL"; exit 1; fi

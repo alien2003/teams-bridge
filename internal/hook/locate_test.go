@@ -4,7 +4,7 @@ import "testing"
 
 func TestSenderMRI(t *testing.T) {
 	for in, want := range map[string]string{
-		"https://teams.live.com/api/mt/beta/users/8:live:.cid.0a1b2c3d4e5f6789/profilepicturev2?displayname=B%20B":             "8:live:.cid.0a1b2c3d4e5f6789",
+		"https://teams.live.com/api/mt/beta/users/8:live:.cid.0a1b2c3d4e5f6789/profilepicturev2?displayname=B%20B":           "8:live:.cid.0a1b2c3d4e5f6789",
 		"https://teams.microsoft.com/api/mt/zz/beta/users/8%3Aorgid%3A1f2e3d4c-0000-1111-2222-333344445555/profilepicturev2": "8:orgid:1f2e3d4c-0000-1111-2222-333344445555",
 		"https://example.com/avatar.png":    "",
 		"https://x/users/../profilepicture": "",

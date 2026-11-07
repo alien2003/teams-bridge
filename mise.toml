@@ -78,6 +78,14 @@ run = "scripts/clean-outside.sh"
 description = "Grep the tree for private keys and tokens"
 run = "scripts/secrets-check.sh"
 
+[tasks.hooks]
+description = "Install the git pre-push hook (scripts/prepush-check.sh on every push)"
+run = "scripts/install-hooks.sh"
+
+[tasks.prepush-check]
+description = "Check every commit of every ref as the pre-push hook would (stop list, secrets, emails, UTC)"
+run = "scripts/prepush-check.sh --all"
+
 [tasks.edge]
 description = "Download Microsoft Edge (.deb) into .tools/ and unpack it with dpkg -x"
 run = "scripts/fetch-edge.sh"

@@ -133,3 +133,7 @@ Edge keeps some per-user bookkeeping in the registry no matter which profile it 
 * **Nothing arrives.** `tbd status` shows whether notifications are being captured; `tbd run
   --log-level debug` logs their raw structure (including text — debug only). `tbd test-push` checks
   the FCM path on its own.
+
+## License
+
+[WTFPL v2](LICENSE): do what you want with it.

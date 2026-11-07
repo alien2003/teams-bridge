@@ -6,6 +6,13 @@ rows below as acknowledged; anything else they find is a failure. `mise run clea
 the *Removal* command of every row whose *clean-outside* column is `run`, prints it for `print` rows
 (apt packages, anything needing sudo or the user's judgement) and skips `keep` / `noise` rows.
 
+This file lists only what tbd, Edge, Windows, WSL and mise themselves touch. Host-specific noise of
+your machine (the desktop apps, launchers, GPU caches and crash dumps of other software that happen
+to write while the Windows checks run) goes into the git-ignored `OUTSIDE.local.md` next to this
+file: the same table with the same `<!-- BEGIN outside-table -->` / `<!-- END outside-table -->`
+markers. `scripts/outside-table.sh`, and so every check above, reads both files; a fresh clone has
+no `OUTSIDE.local.md`, and the first `check-outside-win` failure says which rows your host needs.
+
 Paths are globs matched exactly: a row ending in `*` also covers everything below it, a row without
 it covers only that entry (a directory whose mtime changed). `~` is the WSL home directory,
 `%VAR%` a Windows environment variable, `registry:` a line of the HKCU snapshot, `schtasks:` a
@@ -49,18 +56,17 @@ scheduled task.
 | `%LOCALAPPDATA%\Microsoft\Windows\ActionCenterCache*` | noise (host) | Windows notification centre | none (not ours) | noise |
 | `%LOCALAPPDATA%\Microsoft\Windows\UsrClass.dat*` | noise (host) | Transaction logs of the HKCU\Software\Classes hive | none | noise |
 | `%USERPROFILE%\ntuser.dat*` | noise (host) | Transaction logs of the user registry hive; change whenever any app writes HKCU | none | noise |
-| `%APPDATA%\Ferdium*` | noise (host) | Ferdium running on the host | none (not ours) | noise |
 | `%LOCALAPPDATA%\D3DSCache*` | noise (host) | Direct3D shader cache, written by any GPU-using app | none (not ours) | noise |
-| `%LOCALAPPDATA%\CEF*` | noise (host) | a CEF-based desktop app on the host | none (not ours) | noise |
 | `%LOCALAPPDATA%\wsl*` | noise (host) | WSL's own `ext4.vhdx`: every write inside WSL lands in it | none | noise |
+| `%TEMP%\????????-????-????-????-????????????\swap.vhdx` | noise (WSL) | WSL 2's swap disk (`%TEMP%\<GUID>\swap.vhdx`), written whenever the WSL VM swaps | none (WSL) | noise |
 | `%TEMP%` | noise (host) | the TEMP directory itself (its mtime changes whenever anything creates a temp file) | none | noise |
 | `%TEMP%\????????-????-????-????-????????????.tmp` | noise (host) | transient GUID-named temp files of a background app; they disappear within minutes | none (not ours) | noise |
 | `%TEMP%\????.tmp*` | noise (host) | transient `XXXX.tmp` files and folders of background apps (pre-existing ones are touched) | none (not ours) | noise |
 | `%TEMP%\notificationimages*` | noise (host) | Windows toast images | none (not ours) | noise |
+| `%TEMP%\scoped_dir*` | noise (host) | Chromium/Electron apps on the host create `scoped_dir<pid>_*`. Our Edge runs with TEMP/TMP inside the sandbox; `test-win` separately fails on a new one whose process has exited | none (not ours) | noise |
 | `%TEMP%\Microsoft.PackageManagement*` | noise (host) | PowerShell's PackageManagement module cache, touched by any `powershell.exe` start (including our snapshot script) | none | noise |
 | `%TEMP%\MicrosoftEdgeUpdate.log` | noise (Edge) | Edge Update's own log | none (shared) | noise |
 | `%TEMP%\cv_debug.log` | ours (real daemon, before D19) | Edge's correlation-vector log: the real daemon's Edge wrote it into the user's TEMP until D19 gave tbd's browser `<home>\tmp` (where it now appears). Edge recreates it on demand, so removing it is safe even if the user's own Edge writes one | `rm -f /mnt/c/Users/user/AppData/Local/Temp/cv_debug.log` | run |
-| `%TEMP%\dd_*` | noise (host) | background downloader temp files of a host app | none (not ours) | noise |
 | `%LOCALAPPDATA%\CrashDumps` | noise (host) | Windows Error Reporting's local dump folder itself | none | noise |
 | `%LOCALAPPDATA%\Microsoft\Edge\User Data` | noise (host) | The user's own Edge, running on the host, touches its profile folder; our browsers never use it (`--user-data-dir`) | none (not ours) | noise |
 | `%LOCALAPPDATA%\ConnectedDevicesPlatform*` | noise (host) | Windows' Connected Devices Platform service (Phone Link, nearby sharing) keeps its state here | none (not ours) | noise |

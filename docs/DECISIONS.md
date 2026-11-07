@@ -49,9 +49,12 @@ turned out to be wrong against reality, the entry says so and what was done inst
   levels (deep enough to see e.g. `LOCALAPPDATA\Microsoft\Edge\User Data`), each entry with type,
   size and mtime; the scheduled-task list by name only (the other CSV columns change on their own).
   A full snapshot takes ~2 s.
-  `ext4.vhdx` write continuously. Their paths are acknowledged as host noise in `OUTSIDE.md`; anything
-  else in a diff fails `check-outside-win`. Chromium's `scoped_dir<pid>_*` in `%TEMP%` is noise from
-  the Electron apps, so `test-win` checks separately that none carries one of *our* browser PIDs.
+* The host is a live desktop with background apps; they and the WSL `ext4.vhdx` write
+  continuously. Their paths are acknowledged as host noise (generic Windows components in
+  `OUTSIDE.md`, the apps of one particular machine in its git-ignored `OUTSIDE.local.md`, D21);
+  anything else in a diff fails `check-outside-win`. Chromium's `scoped_dir<pid>_*` in `%TEMP%` is
+  noise from Chromium/Electron apps, so `test-win` checks separately that none carries one of *our*
+  browser PIDs.
 
 ## D5 — Windows autostart: XML task, not `/sc onlogon` (brief corrected)
 
@@ -570,3 +573,37 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   (Measured: `conhost.exe --headless <client>` started directly from WSL or a test, i.e. with
   standard handles, does not run the client — it acts as a ConPTY server on those handles — so
   only Task Scheduler reproduces production.)
+
+## D21 — Public repository: privacy and push checks
+
+* **Licence: WTFPL v2** (brief corrected: the brief said 0BSD unless the user named another; the
+  maintainer did). `LICENSE`, README and the preload comment say so; there are no SPDX headers.
+* **Nothing about the maintainer's own machine is committed.** `OUTSIDE.md` keeps only rows about
+  tbd, Edge, Windows, WSL and mise themselves and generic Windows components; noise of the desktop
+  apps, launchers, GPU caches and crash dumps of other software on one particular host goes into the
+  git-ignored `OUTSIDE.local.md` (same table, same markers), which `scripts/outside-table.sh` reads
+  after `OUTSIDE.md` when it exists, so `check-outside`, `check-outside-win` and `clean-outside`
+  see both. A fresh clone starts without it; its first `check-outside-win` names the rows it needs.
+  Found while splitting: WSL 2's swap disk `%TEMP%\<GUID>\swap.vhdx` changes whenever the VM swaps
+  (a generic WSL row now).
+* Fixtures and docs use the synthetic region shard `zz-01` / `zz` (avatar URLs `/api/mt/part/zz-01/…`,
+  hosts `zz.ng.msg.teams.microsoft.com`) instead of a real one; the matchers never depended on it.
+  The Firebase project number (the FCM sender id) is not written in docs; the project id stays.
+* **`.gitignore`**: `config.toml`, `*.sa.json`, `*.p12`, `*.jks`, `*.keystore`, `*.pfx` at any depth,
+  `OUTSIDE.local.md`, release outputs (`*.apk`, `*.aab`, mapping archives, `SHA256SUMS`, `/release/`)
+  besides `.local/` and `dist/`; `google-services.json.example` stays tracked. `secrets-check` also
+  refuses a force-added `config.toml`, `OUTSIDE.local.md` or anything under `.local/`.
+* **Pre-push hook** (`mise run hooks` → `scripts/install-hooks.sh` writes `.git/hooks/pre-push`,
+  idempotent, refuses to overwrite a foreign hook): `scripts/prepush-check.sh` checks every commit
+  being pushed (`git rev-list <remote>..<local>`, or everything not on the remote for a new ref) and
+  every annotated tag: the stop list (as in `secrets-check`, including dashless GUIDs) over the
+  commit's whole tree and over the raw commit object (message, names, emails); the `secrets-check`
+  key/token patterns over the same (patterns now shared in `scripts/secrets-lib.sh`); author,
+  committer and tagger emails only `alien2003@protonmail.ch`, `*@users.noreply.github.com` or
+  `noreply@github.com`; their timezone offsets only `+0000` (**fail**, not warn: commits are made
+  with `TZ=UTC`, and an offset tells roughly where the author lives). It prints commit and file
+  names only, never the matching text. By hand: `mise run prepush-check` (all refs) or
+  `scripts/prepush-check.sh <rev-list args>`. The stop list never leaves the dev PC: CI runs
+  `secrets-check` with `TBD_NO_DENYLIST=1`.
+* Measured on 2026-11-07, before the history rewrite: `mise run prepush-check` fails on 41 commits,
+  82 findings, all of them a non-UTC timezone offset; no stop-list, pattern or email finding.

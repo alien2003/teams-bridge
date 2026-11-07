@@ -179,7 +179,7 @@ Clone shallow into `.cache/ref/`: `https://github.com/ferdium/ferdium-recipes` (
 - `mise run build` → `dist/tbd` (linux/amd64, static, `-trimpath -ldflags "-s -w"`), `dist/tbd.exe` (windows/amd64), `dist/teams-bridge-debug.apk`.
 - `mise run test` and `mise run test-win` green; `mise run check-outside` and `mise run check-outside-win` clean.
 - `README.md` (English, concise): what it is and the threat model in one paragraph; prerequisites (Edge or Chromium; Firebase project: create → enable Cloud Messaging → service-account JSON → `google-services.json`); build; `tbd login` → `tbd pair` → install the app → scan → `tbd install`; WSL keep-alive note; Windows-native note; troubleshooting (Conditional Access / device compliance may block a headless browser; session expiry → `tbd login` again; topic latency; WebAPK only from Chrome and Edge, Vivaldi/Firefox/Brave open a tab); a "not affiliated with Microsoft" line.
-- `proto/PROTOCOL.md` = §3 expanded; `docs/DECISIONS.md`; `OUTSIDE.md`; `LICENSE` = 0BSD unless the user names another.
+- `proto/PROTOCOL.md` = §3 expanded; `docs/DECISIONS.md`; `OUTSIDE.md`; `LICENSE` = WTFPL v2 (the user named it).
 - Git: small conventional commits; `.gitignore` covers `.local/ .tools/ .tmp/ .xdg/ .cache/ dist/ android/app/google-services.json *.sa.json .env.local`; a `mise run secrets-check` task greps the tree for private keys and tokens and runs before the final commit.
 - Final report to the user: what works and how it was tested; what needs them (Firebase files, real `tbd login`, phone install, verifying the deep-link mapping and PWA scope against real Teams); the final `OUTSIDE.md`; the last Windows snapshot diff; confirmation that `clean-outside` ran and what remains in the mise store.
 

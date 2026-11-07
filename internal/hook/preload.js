@@ -8,7 +8,7 @@
 // prepended, and docs/DECISIONS.md for why this shape was chosen over a templated preload body.
 //
 // Re-implemented from the behaviour of Ferdium's notification shim (recipe + app webview); no code
-// is copied (licences differ; this project is 0BSD).
+// is copied (licences differ; this project is WTFPL v2).
 (function () {
   "use strict";
 

@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # Print the OUTSIDE.md table as TSV: path<TAB>kind<TAB>why<TAB>removal<TAB>action (backticks stripped,
-# Markdown-escaped pipes "\|" restored to "|").
+# Markdown-escaped pipes "\|" restored to "|"). The git-ignored OUTSIDE.local.md (host-specific noise
+# of this machine, same table between the same markers) is read after it when it exists.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-awk '/<!-- BEGIN outside-table -->/{on=1; next} /<!-- END outside-table -->/{on=0} on && /^\|/ {print}' "$ROOT/OUTSIDE.md" |
-  tail -n +3 |
+files=( "$ROOT/OUTSIDE.md" )
+[[ -f "$ROOT/OUTSIDE.local.md" ]] && files+=( "$ROOT/OUTSIDE.local.md" )
+# Per file: the table rows between the markers, minus the header and the |---| separator.
+awk 'FNR==1 {on=0; n=0}
+  /<!-- BEGIN outside-table -->/ {on=1; next}
+  /<!-- END outside-table -->/ {on=0}
+  on && /^\|/ { if (++n > 2) print }' "${files[@]}" |
   awk 'BEGIN{OFS="\t"} {
     gsub(/\\\|/, "\001")
     n = split($0, c, "|")

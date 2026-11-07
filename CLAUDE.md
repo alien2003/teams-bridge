@@ -3,7 +3,7 @@
 `tbd` is a Go daemon that keeps Microsoft Teams web open in a headless Edge driven over CDP, catches
 every notification the page raises and pushes it end-to-end encrypted, as an FCM topic data message,
 to the Android app **Teams Bridge** (`android/`). There is no server of ours and no reverse channel.
-`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D20) records what was decided and measured,
+`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D21) records what was decided and measured,
 and where an entry says "brief corrected", DECISIONS wins.
 
 ## Rules
@@ -73,7 +73,9 @@ unsure, ask.
 - **Nothing may be created outside the repo unless `OUTSIDE.md` lists it.** A new unavoidable side
   effect gets a row in the same commit, with path glob, kind, why, exact removal command and
   clean-outside action. Never `sudo` before adding that row and telling the maintainer. *Why:*
-  `check-outside`, `check-outside-win` and `clean-outside` trust only that table.
+  `check-outside`, `check-outside-win` and `clean-outside` trust only that table. Noise from other
+  software on the maintainer's own host goes into the git-ignored `OUTSIDE.local.md` (same table),
+  never into `OUTSIDE.md`: the repository is public and must not describe that machine (D21).
 - **Temporary files go to `.tmp/` (`$TMPDIR` under mise), never `/tmp`** (only the agent's own
   `/tmp/claude-*` scratch is exempt). Never delete or re-touch `.tmp/stamp` (no `rm -rf .tmp`) or
   the sandbox's `snapshots/baseline.*`. *Why:* they are the outside checks' reference points.
@@ -120,7 +122,7 @@ The maintainer works alone: commit directly on `main`, small Conventional Commit
    last), every new side effect an `OUTSIDE.md` row, user-visible changes are in `README.md`.
 5. The commit message holds no real ids or names. Nothing is pushed.
 
-docs, commits) is English.
+Repository text (code, comments, docs, commits) is English.
 
 ## Project map
 
@@ -171,11 +173,12 @@ phone: MessagingService → decrypt + replay filter → Notifier → tap → Ope
 | `test/faketeams/` | fake Teams (`site/`) + httptest server; browser-level E2E |
 | `android/` | Gradle project, app `io.github.alien2003.teamsbridge`; `…/proto/` = Kotlin twin of `internal/proto`; no Gradle wrapper (mise's `gradle`) |
 | `proto/` | `PROTOCOL.md` + `vectors.json` (frozen, read by Go and Kotlin tests) |
-| `scripts/`, `scripts/win/` | what the mise tasks run; `win/lib.sh` = sandbox helpers; `outside-table.sh` parses OUTSIDE.md's table between its markers (keep its five columns) |
+| `scripts/`, `scripts/win/` | what the mise tasks run; `win/lib.sh` = sandbox helpers; `outside-table.sh` parses the tables of OUTSIDE.md and the git-ignored OUTSIDE.local.md between their markers (keep the five columns); `secrets-lib.sh` = patterns + stop list shared by `secrets-check.sh` and `prepush-check.sh` |
 
 Git-ignored, inside the repo: `.local/` (dev `TBD_HOME=.local/tbd`, `denylist.txt`), `.tools/`
 (Edge, Android SDK, `debug.keystore`), `.tmp/` (`TMPDIR`, `stamp`, `go-test.log`), `.xdg/` (all
-redirected caches, including the Go module cache), `.cache/ref/`, `dist/`, `.env.local`.
+redirected caches, including the Go module cache), `.cache/ref/`, `dist/`, `.env.local`,
+`OUTSIDE.local.md` (host-specific noise rows of this machine).
 
 ## Commands
 
@@ -183,7 +186,8 @@ From the repo root (`mise tasks` lists them); anything that is not a task runs a
 
 | Command | When |
 |---|---|
-| `mise trust && mise install` | first time in a checkout |
+| `mise trust && mise install && mise run hooks` | first time in a checkout (`hooks` installs the pre-push check, D21) |
+| `mise run prepush-check` | what the pre-push hook checks, over every ref: stop list over all trees and commit objects, secret patterns, author/committer emails, `+0000` offsets |
 | `mise run build` | `dist/tbd` (static), `dist/tbd.exe`, `dist/teams-bridge-debug.apk` (fails at ≥ 6 MB) |
 | `mise run build-go` | Go binaries only; one target: `mise exec -- scripts/build.sh linux\|windows\|android` |
 | `mise run lint` | gofmt, then go vet + staticcheck for GOOS linux and windows; before every commit |

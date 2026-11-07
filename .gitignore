@@ -4,9 +4,25 @@
 /.xdg/
 /.cache/
 /dist/
-android/app/google-services.json
-*.sa.json
 .env.local
+# Secrets at any depth: a real config.toml holds the pairing secret, *.sa.json is an FCM
+# service-account key, the rest are signing keys / keystores (the release key lives in .local/).
+config.toml
+*.sa.json
+*.p12
+*.jks
+*.keystore
+*.pfx
+android/app/google-services.json
+!android/app/google-services.json.example
+# Host-specific noise rows of OUTSIDE.md (they describe one machine, OUTSIDE.md says so).
+/OUTSIDE.local.md
+# Release outputs (scripts may stage them outside dist/).
+/release/
+*.apk
+*.aab
+*-mapping.txt.gz
+SHA256SUMS
 # Gradle / Android build outputs
 android/.gradle/
 android/.kotlin/
