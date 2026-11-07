@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -124,8 +125,10 @@ func TestBinaryRunOnce(t *testing.T) {
 			t.Errorf("log does not carry the Windows profile path %s:\n%s", browser.ProfileDir(home), logs)
 		}
 	}
+	// --once exits after the first delivery, but the shutdown still flushes what is already queued
+	// (nothing is dropped), so a second notification of the fake page may have gone out too.
 	st, err := exec.Command(exe, "--home", home, "status").CombinedOutput()
-	if err != nil || !strings.Contains(string(st), "1 sent in total") {
+	if err != nil || !regexp.MustCompile(`\([1-9][0-9]* sent in total\)`).Match(st) {
 		t.Errorf("status after run: %v\n%s", err, st)
 	}
 }
