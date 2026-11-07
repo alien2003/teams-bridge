@@ -165,7 +165,7 @@ phone: MessagingService → decrypt + replay filter → Notifier → tap → Ope
 |---|---|
 | `cmd/tbd/` | thin CLI: `login`, `pair [--new] [--invert] [--ping-for]`, `run [--once] [--timeout] [--log-file]`, `stop [--timeout]`, `start`, `status`, `test-push`, `install`/`uninstall [--dry-run]`, `version`; `--home`/`--log-level` go before or after the command |
 | `internal/daemon/` | the wiring: supervise/runBrowser, onBinding, dedup, outbox, chat-list survey, `state.json`, `tbd.lock` (+ Windows stop event), stop/start, console-host watch (D20), install; in-process E2E |
-| `internal/browser/` | Launch (switches, `msImplicitSignin` off, process group / job object), Attach (CDP, workers, events), windowed Login, UA + client hints |
+| `internal/browser/` | Launch (switches per OS in `platformLaunchArgsFor` & co., macOS: mock keychain, `--disk-cache-dir`, native notifications off; `msImplicitSignin` off; process group / job object; `killStaleBrowser` ends a browser a dead daemon left on the profile), Attach (CDP, workers, events), windowed Login (ends when the browser exits or no page is left), UA + client hints (macOS: `navigator.platform` `Win32`); `cache_darwin_test.go` runs only on the macOS runners |
 | `internal/hook/` | `preload.js`, `worker.js`, `drain.js`, `survey.js` (go:embed); `Parse`, `DeepLink`, `SenderMRI`, `Shape`, `DescribeData`, `Counts` |
 | `internal/session/` | Detector, Debouncer, `probe.js`, FailureTracker/Backoff, heartbeat |
 | `internal/proto/` | frozen v1: secret/code, HKDF key + topic, padding, AEAD, Message, replay filter; `cmd/gen-vectors` |
@@ -221,10 +221,12 @@ From the repo root (`mise tasks` lists them); anything that is not a task runs a
   **Without `TBD_REQUIRE_BROWSER=1` a missing browser turns every browser test into a skip** and
   `go test` still says `ok`; `test`/`test-win` set it, so set it in inner loops too.
 - `cmd/tbd/binary_test.go` runs the built binary (`TBD_EXE`, default `dist/tbd`). Run
-  `mise run build-go` first, or you are testing a stale binary. Windowed login tests need a display:
-  without WSLg they are skipped in WSL, and they run on Windows in `test-win`.
-- `test/faketeams` raises Alice (window), Bob (sw-page), Carol (sw-worker) once each, records UA and
-  client hints, has a 401 mode, a fake login host (`localhost`) and `Notify()`/`NotifyWith()`.
+  `mise run build-go` first, or you are testing a stale binary. Windowed login tests need a GUI
+  (`faketeams.RequireGUI`): without WSLg they are skipped in WSL, they run on Windows in `test-win`,
+  and on macOS only in an Aqua session (`TBD_REQUIRE_GUI=1` makes the skip a failure). They close
+  the page (`faketeams.ClosePageTargets`), not the browser, as a user closing the window would.
+- `test/faketeams` raises Alice (window), Bob (sw-page), Carol (sw-worker) once each, records UA,
+  client hints and `navigator.platform`, sets a persistent cookie of its own, has a 401 mode, a fake login host (`localhost`) and `Notify()`/`NotifyWith()`.
   `resolver_test.go` runs the real preload's resolver in Edge against chat lists of the measured
   shape (group vs the sender's 1:1, channel posts, the open pane, truncation, bursts, a reload). The daemon E2E runs
   in-process against it and `fcmtest` with the vectors' secret; every push must decrypt. Reproduce

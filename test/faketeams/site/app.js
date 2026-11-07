@@ -46,6 +46,7 @@
       brands: (navigator.userAgentData && navigator.userAgentData.brands) || null,
       mobile: navigator.userAgentData ? navigator.userAgentData.mobile : null,
       platform: navigator.userAgentData ? navigator.userAgentData.platform : null,
+      navPlatform: navigator.platform,
     };
     if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
       navigator.userAgentData

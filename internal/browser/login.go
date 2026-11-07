@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/chromedp/cdproto/cdp"
 	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
 
 	"github.com/alien2003/teams-bridge/internal/config"
@@ -57,9 +60,10 @@ type LoginOptions struct {
 
 // Login runs `tbd login`: it launches the same profile in a visible window (no --headless),
 // navigates to the Teams URL, logs once the main frame has settled on the Teams origin (not a login
-// host), and then waits for the user to close the window (the browser process exits). It returns
-// nil if the user was signed in by then, ErrNotSignedIn otherwise. If ctx is cancelled it closes the
-// browser and returns ctx.Err().
+// host), and then waits for the user to close the window: the browser process exits, or no page is
+// left (on macOS closing the last window does not quit the browser), in which case Login closes
+// the browser itself. It returns nil if the user was signed in by then, ErrNotSignedIn otherwise.
+// If ctx is cancelled it closes the browser and returns ctx.Err().
 func Login(ctx context.Context, o LoginOptions) error {
 	log := o.Logger
 	if log == nil {
@@ -74,7 +78,7 @@ func Login(ctx context.Context, o LoginOptions) error {
 		Path: o.Path, Home: o.Home, Headless: o.headless, UserAgent: o.UserAgent, ExtraArgs: o.ExtraArgs, ImplicitSignin: o.ImplicitSignin, Logger: log,
 	})
 	if err != nil {
-		return err
+		return loginLaunchHint(runtime.GOOS, o.headless, os.Getenv("SSH_CONNECTION"), err)
 	}
 	defer func() {
 		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -115,18 +119,25 @@ func Login(ctx context.Context, o LoginOptions) error {
 			if looksLikeChromiumUA(o.UserAgent) && o.Version.Full != "" {
 				meta = UserAgentMetadata(o.Version.Full)
 			}
-			if _, err := cdp.Call(ctx, t, emulation.SetUserAgentOverride, emulation.SetUserAgentOverrideParams{
-				UserAgent: o.UserAgent, UserAgentMetadata: meta,
-			}); err != nil {
+			if _, err := cdp.Call(ctx, t, emulation.SetUserAgentOverride, uaOverrideFor(runtime.GOOS, o.UserAgent, meta)); err != nil {
 				return fmt.Errorf("setUserAgentOverride: %w", err)
 			}
 		}
-		_, err := cdp.Call(ctx, t, page.Navigate, page.NavigateParams{URL: o.TeamsURL})
-		return err
+		if _, err := cdp.Call(ctx, t, page.Navigate, page.NavigateParams{URL: o.TeamsURL}); err != nil {
+			return err
+		}
+		if runtime.GOOS == "darwin" && !o.headless {
+			// A browser started from Terminal opens its window behind it; best effort.
+			if _, err := cdp.Call(ctx, t, page.BringToFront, cdp.Empty{}); err != nil {
+				log.Debug("bringToFront failed", "err", err)
+			}
+		}
+		return nil
 	})); err != nil {
 		return err
 	}
-	log.Info("sign in to Teams in the browser window; close the window when Teams has loaded")
+	noPages := watchPages(pageCtx, log)
+	log.Info("sign in to Teams in the browser window; close the window (or quit the browser) when Teams has loaded")
 
 	if o.OnReady != nil {
 		o.OnReady(proc.WSURL)
@@ -134,13 +145,79 @@ func Login(ctx context.Context, o LoginOptions) error {
 
 	select {
 	case <-proc.Done():
-		if !st.signedIn() {
-			return ErrNotSignedIn
-		}
-		return nil
+	case <-noPages:
+		log.Debug("no page left in the login browser; closing it")
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	if !st.signedIn() {
+		return ErrNotSignedIn
+	}
+	return nil
+}
+
+// loginLaunchHint adds a hint to a failed start of the login window on macOS over SSH, where the
+// browser has no window server session to open a window in.
+func loginLaunchHint(goos string, headless bool, sshConnection string, err error) error {
+	if goos == "darwin" && !headless && sshConnection != "" {
+		return fmt.Errorf("%w (this shell came in over SSH, where no browser window can open: run tbd login in Terminal on the Mac itself)", err)
+	}
+	return err
+}
+
+// pagePollInterval is how often watchPages re-counts the page targets without an event.
+const pagePollInterval = 2 * time.Second
+
+// watchPages returns a channel that is closed once the browser of ctx has no page target left (the
+// user closed the last window or tab). It re-counts the browser's targets whenever a target is
+// destroyed or crashes, and every pagePollInterval in case an event is missed; a failed count (the
+// browser is going away) is ignored, since the process exit ends Login then.
+func watchPages(ctx context.Context, log *slog.Logger) <-chan struct{} {
+	gone := make(chan struct{})
+	wake := make(chan struct{}, 1)
+	if err := chromedp.ListenBrowser(ctx, func(ev any) {
+		switch ev.(type) {
+		case *target.EventTargetDestroyed, *target.EventTargetCrashed, *target.EventDetachedFromTarget:
+			select {
+			case wake <- struct{}{}:
+			default:
+			}
+		}
+	}); err != nil {
+		log.Debug("cannot watch the browser's targets; waiting for the browser to exit", "err", err)
+	}
+	go func() {
+		tick := time.NewTicker(pagePollInterval)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-wake:
+			case <-tick.C:
+			}
+			infos, err := chromedp.Targets(ctx)
+			if err != nil {
+				continue
+			}
+			if countPages(infos) == 0 {
+				close(gone)
+				return
+			}
+		}
+	}()
+	return gone
+}
+
+// countPages counts the page targets (tabs and windows; not workers, extensions or iframes).
+func countPages(infos []*target.Info) int {
+	n := 0
+	for _, i := range infos {
+		if i != nil && i.Type == "page" {
+			n++
+		}
+	}
+	return n
 }
 
 // loginState decides "signed in": the main frame has been on the Teams origin, and not on a login

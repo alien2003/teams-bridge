@@ -96,7 +96,8 @@ func browserContext(t *testing.T) context.Context {
 	t.Logf("browser: %s (%s)", b.Path, b.Source)
 	dir := t.TempDir()
 	// Edge leaves its SingletonSocket directory in TMPDIR when it is killed, so give it a TMPDIR
-	// that the test removes. Not t.TempDir(): a Unix socket path must stay under 108 bytes.
+	// that the test removes. Not t.TempDir(): a Unix socket path must stay under 108 bytes (104 on
+	// macOS).
 	tmp, err := os.MkdirTemp("", "e")
 	if err != nil {
 		t.Fatal(err)

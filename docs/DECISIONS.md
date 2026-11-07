@@ -903,3 +903,68 @@ Configuration (`internal/config`):
   (Info.plist nests dictionaries with keys of the same names). Unit tests on every OS cover the
   order, the bundle resolution and the plist fixtures; a darwin-only test on the runners checks the
   real bundle, `browser = "<bundle>.app"` and that `Info.plist` agrees with `--version`.
+
+Browser (`internal/browser`):
+
+* **Switches** (`platformLaunchArgsFor`, a pure function of GOOS, so the tests of every OS pin the
+  macOS list): `--use-mock-keychain` always, for the headless daemon and the windowed login alike,
+  and never through `browser_args`, so the two cannot disagree on the key of the cookie store.
+  Without it Edge creates and reads `Microsoft Edge Safe Storage` in the user's login keychain, the
+  item the user's own Edge shares by name, and access can prompt, or block under launchd while the
+  keychain is locked, silently losing the session. The trade-off: cookies at rest are then
+  encrypted with a public constant key, so only the 0700 home protects them, as on Linux without a
+  keyring. No `--password-store` (a Linux-only switch). `--disk-cache-dir=<home>/cache` always (see
+  the data directory above); `--disable-gpu` headless, as on Linux.
+* **Native notifications off:** the features `NativeNotifications,SystemNotifications` are
+  disabled on macOS in a list of their own that is always merged into `--disable-features` (not
+  `DisabledEdgeFeatures`, which `implicit_signin` drops). `worker.js` still calls the original
+  `showNotification` after capturing; on a Mac that would reach the Notification Center: a
+  permission prompt for the browser that nobody answers, or real banners repeating Teams content.
+  Chromium's own message center, the fallback, is invisible headless (what Linux headless does
+  already). Capture is unaffected. Never `--disable-notifications`: the hook would no longer be
+  called.
+* **Crash dumps:** Crashpad on macOS ignores `--user-data-dir` and `--crash-dumps-dir`; the browser
+  gets `BREAKPAD_DUMP_LOCATION=<home>/crashes` so that it does not write into the user's own
+  `~/Library/Application Support/Microsoft Edge/Crashpad`. `--crash-dumps-dir` stays.
+* **navigator.platform:** D8 holds on macOS too (the Windows 11 Edge UA and Windows client hints,
+  one identity for sign-in and daemon), and where the Windows metadata is applied (page, workers,
+  login) `Emulation.setUserAgentOverride` also sets `platform = "Win32"`: a Mac would otherwise
+  report `MacIntel` next to a Windows UA, a combination never tested against Conditional Access.
+  Linux keeps its own `Linux x86_64` (proven in production); Windows says `Win32` itself. A user's
+  non-Chromium `user_agent` gets neither metadata nor platform.
+* **A browser left behind:** macOS has no Pdeathsig, so a daemon that crashed or was SIGKILLed
+  leaves its headless browser holding the profile; the next browser would hand over to it through
+  Chromium's process singleton and exit, and `Launch` would fail ("exited before the DevTools
+  endpoint appeared") over and over under launchd's KeepAlive. Before every launch, on every Unix,
+  `killStaleBrowser` reads `<profile>/SingletonLock` (a symlink to `<host>-<pid>`) and ends that
+  process's group (SIGTERM, SIGKILL after 5 s) only if the process is alive, leads its own process
+  group (Launch sets Setpgid) and has exactly `--user-data-dir=<profile>` in its argv (macOS:
+  `kern.procargs2`; Linux: `/proc/<pid>/cmdline`). `tbd.lock` makes any such process ours. It logs
+  `killed a browser left by a previous tbd`. Windows needs nothing (the job object kills the tree
+  with the daemon). Rejected: `--remote-debugging-pipe` (the browser would die with its pipe, but
+  the CDP transport would have to be rewritten). Tests: a stand-in shell "browser" on Linux and
+  macOS (killed with its group; left alone when its argv names another or a parent profile, when it
+  is not a group leader, for a dead PID, a regular file, our own PID or an unreadable argv; SIGKILL
+  when SIGTERM is ignored), and the real browser: a helper process launches it and is SIGKILLed,
+  and the next `Launch` on the same home must succeed with nothing of the old group left (on Linux
+  Pdeathsig gets there first; on macOS the log line must appear).
+* **`tbd login` ends when the window closes:** on macOS closing the last window does not quit the
+  browser, so `Login` also ends when no page target is left (re-counted with `Target.getTargets`
+  on every target destroyed or crashed, and every 2 s), then closes the browser itself; on every
+  OS (measured on the dev PC: headless Edge on Linux keeps running without pages too, so
+  `TestLoginReturnsWhenPageClosed` exercises the watcher there). The message says "close the window
+  (or quit the browser)". On macOS `Page.bringToFront` after navigating, since a browser started
+  from Terminal opens behind it, and a failed start over SSH (`SSH_CONNECTION` set) adds "run tbd
+  login in Terminal on the Mac itself". The windowed tests close the page (`Target.closeTarget`),
+  not the browser, and run on macOS only in a GUI session (`launchctl managername` says `Aqua`);
+  `TBD_REQUIRE_GUI=1` turns that skip into a failure.
+* **Cookie persistence** (every OS): faketeams sets a persistent cookie; a headless login on a
+  home, then a `Launch` + `Attach` on the same home must send it back, which proves that the store
+  survives a restart and that login and daemon agree on its key.
+* **Runner-only check** (`cache_darwin_test.go`, `GITHUB_ACTIONS=true`): with a home under the
+  real `~/Library/Application Support/tbd-test-<random>`, after a page load
+  `~/Library/Caches/tbd-test-<random>` must not exist and `<home>/cache` must hold files; both are
+  removed afterwards.
+* **Socket path:** Chromium's singleton socket lives in `TMPDIR`, and `sun_path` holds 104 bytes
+  on macOS (108 on Linux). The browser keeps the caller's `TMPDIR` on macOS as on Linux; whether a
+  runner's `TMPDIR` is short enough is first seen on the macOS legs. Only comments changed.

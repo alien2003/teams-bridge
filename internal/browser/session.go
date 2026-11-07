@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -211,9 +212,7 @@ func Attach(ctx context.Context, wsURL string, o SessionOptions, h Handlers) (*S
 	detached := chromedp.Events(evCtx, inspector.Detached)
 
 	setup := chromedp.Func(func(ctx context.Context, t *chromedp.Target) error {
-		if _, err := cdp.Call(ctx, t, emulation.SetUserAgentOverride, emulation.SetUserAgentOverrideParams{
-			UserAgent: uaString, UserAgentMetadata: meta,
-		}); err != nil {
+		if _, err := cdp.Call(ctx, t, emulation.SetUserAgentOverride, uaOverrideFor(goruntime.GOOS, uaString, meta)); err != nil {
 			return fmt.Errorf("setUserAgentOverride: %w", err)
 		}
 		if _, err := cdp.Call(ctx, t, runtime.AddBinding, runtime.AddBindingParams{Name: hook.BindingName}); err != nil {
@@ -425,13 +424,10 @@ func (s *Session) hookWorker(id target.ID) {
 		// Best effort, first: the worker's own requests should carry the session's UA and client
 		// hints (the browser-wide --user-agent covers the UA string up to this point). A worker
 		// target may implement only one of the two domains.
-		if _, err := cdp.Call(ctx, t, emulation.SetUserAgentOverride, emulation.SetUserAgentOverrideParams{
-			UserAgent: s.ua, UserAgentMetadata: s.meta,
-		}); err != nil {
+		ov := uaOverrideFor(goruntime.GOOS, s.ua, s.meta)
+		if _, err := cdp.Call(ctx, t, emulation.SetUserAgentOverride, ov); err != nil {
 			// Network.setUserAgentOverride takes the same parameters; cdproto has no typed command.
-			if nerr := t.Call(ctx, "Network.setUserAgentOverride", emulation.SetUserAgentOverrideParams{
-				UserAgent: s.ua, UserAgentMetadata: s.meta,
-			}, nil); nerr != nil {
+			if nerr := t.Call(ctx, "Network.setUserAgentOverride", ov, nil); nerr != nil {
 				s.log.Debug("worker UA override not applied", "target", id, "emulation", err, "network", nerr)
 			}
 		}

@@ -7,6 +7,15 @@ tagged yet is marked "Unreleased" and gets its date when it is tagged.
 
 ## [0.2.0] - Unreleased
 
+### Changed
+
+* `tbd login` also finishes when the Teams window is closed while the browser keeps running (as
+  on macOS after its last window, or with a browser that stays in the background); it then closes
+  the browser itself.
+* At its next start, the daemon ends a headless browser that a crashed or killed daemon left
+  running on its profile (log line `killed a browser left by a previous tbd`), instead of failing
+  to start a new one.
+
 ### Releases
 
 * `tbd-darwin-arm64` (macOS, Apple Silicon) and `tbd-darwin-amd64` (macOS, Intel), covered by

@@ -12,8 +12,10 @@
 //
 // The HTTP server listens on 127.0.0.1. "localhost" resolves to the same address, so the same
 // server also answers as the fake login host; tests set login_hosts to [LoginHost()] and api_hosts
-// to [APIHostPattern()]. The server records every request's User-Agent and Sec-CH-UA* headers and
-// asks for the high-entropy hints with Accept-CH/Critical-CH on the page.
+// to [APIHostPattern()]. The server records every request's User-Agent and Sec-CH-UA* headers (and
+// whether it carried the site's own persistent cookie, SessionCookieName) and asks for the
+// high-entropy hints with Accept-CH/Critical-CH on the page. window.go has the helpers of the
+// windowed tests (RequireGUI, ClosePageTargets).
 package faketeams
 
 import (
@@ -45,7 +47,18 @@ type Request struct {
 	SecCHUAFullVerLst string
 	SecCHUAModel      string
 	SecCHUAWoW64      string
+	// SessionCookie is the value of the site's own SessionCookieName cookie in the request ("" if
+	// it carried none); no other cookie is recorded.
+	SessionCookie string
 }
+
+// SessionCookieName is the persistent cookie the site sets on every page load (Max-Age one day),
+// with the value SessionCookieValue: a second browser start on the same profile must send it back,
+// which proves that the cookie store survives a restart and that every launch can decrypt it.
+const SessionCookieName = "tbd_fake_session"
+
+// SessionCookieValue is the value of SessionCookieName (synthetic).
+const SessionCookieValue = "fake-0123456789abcdef"
 
 // Report is a /report payload posted by the page or its service worker. Type "env" carries the
 // environment the page saw; type "raised" is sent once for every notification the site raises.
@@ -59,7 +72,8 @@ type Report struct {
 	HasFocus        bool            `json:"hasFocus"`
 	Permission      string          `json:"permission"`
 	Mobile          *bool           `json:"mobile"`
-	Platform        string          `json:"platform"`
+	Platform        string          `json:"platform"`    // navigator.userAgentData.platform
+	NavPlatform     string          `json:"navPlatform"` // navigator.platform
 	HighEntropy     map[string]any  `json:"highEntropy"`
 	Raw             json.RawMessage `json:"-"`
 }
@@ -293,6 +307,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		s.serveFile(w, "login.html", "text/html; charset=utf-8", false)
 		return
 	case r.URL.Path == "/v2/" || r.URL.Path == "/v2":
+		http.SetCookie(w, &http.Cookie{
+			Name: SessionCookieName, Value: SessionCookieValue, Path: "/", MaxAge: 86400,
+			HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		})
 		s.serveFile(w, "index.html", "text/html; charset=utf-8", true)
 		return
 	case r.URL.Path == "/v2/app.js":
@@ -329,9 +347,17 @@ func (s *Server) record(r *http.Request) {
 		SecCHUAFullVerLst: r.Header.Get("Sec-CH-UA-Full-Version-List"),
 		SecCHUAModel:      r.Header.Get("Sec-CH-UA-Model"),
 		SecCHUAWoW64:      r.Header.Get("Sec-CH-UA-WoW64"),
+		SessionCookie:     sessionCookie(r),
 	})
 	s.notifyLocked()
 	s.mu.Unlock()
+}
+
+func sessionCookie(r *http.Request) string {
+	if c, err := r.Cookie(SessionCookieName); err == nil {
+		return c.Value
+	}
+	return ""
 }
 
 func (s *Server) handleReport(w http.ResponseWriter, r *http.Request) {

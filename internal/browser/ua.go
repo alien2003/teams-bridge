@@ -85,3 +85,26 @@ func UserAgentMetadata(fullVersion string) *emulation.UserAgentMetadata {
 func looksLikeChromiumUA(ua string) bool {
 	return strings.Contains(ua, "Chrome/") || strings.Contains(ua, "Edg/")
 }
+
+// uaPlatformFor is the navigator.platform to present on goos together with the Windows client
+// hints: "Win32" on macOS, where the browser would otherwise report "MacIntel" next to a Windows
+// UA, a combination that was never tested against Conditional Access; empty (the browser's own)
+// elsewhere. Linux keeps its own "Linux x86_64", the combination proven in production, and Windows
+// already says "Win32" (docs/DECISIONS.md D8, D26).
+func uaPlatformFor(goos string) string {
+	if goos == "darwin" {
+		return "Win32"
+	}
+	return ""
+}
+
+// uaOverrideFor returns the Emulation/Network.setUserAgentOverride parameters for ua and meta on
+// goos. The platform is overridden only together with the Windows metadata: a user's own non-Chromium
+// UA gets neither.
+func uaOverrideFor(goos, ua string, meta *emulation.UserAgentMetadata) emulation.SetUserAgentOverrideParams {
+	p := emulation.SetUserAgentOverrideParams{UserAgent: ua, UserAgentMetadata: meta}
+	if meta != nil {
+		p.Platform = uaPlatformFor(goos)
+	}
+	return p
+}

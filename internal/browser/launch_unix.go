@@ -12,20 +12,10 @@ import (
 // configureSysProcAttr puts the browser in its own process group, so the whole tree (Chromium's
 // zygote, GPU and utility children) can be signalled at once, and on Linux asks the kernel to kill
 // the browser when the daemon dies (Pdeathsig), so a crashed daemon leaves no orphan holding the
-// profile.
+// profile. Elsewhere (macOS) killStaleBrowser cleans such an orphan up at the next Launch.
 func configureSysProcAttr(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	setPdeathsig(cmd.SysProcAttr)
-}
-
-// platformLaunchArgs are the extra switches for this OS. Without a GPU (headless, WSL) the GPU
-// probe only logs errors and slows the start. The sandbox stays on: see LaunchOptions and
-// docs/DECISIONS.md.
-func platformLaunchArgs(headless bool) []string {
-	if headless {
-		return []string{"--disable-gpu"}
-	}
-	return nil
 }
 
 // procTree is the browser's process group. Setpgid made the browser the group leader, so the
@@ -64,5 +54,5 @@ func (t *procTree) release() {}
 
 // browserTempKeys is empty: the browser keeps the caller's TMPDIR. Chromium puts its singleton
 // socket under it, and a deep TMPDIR (such as <home>/tmp in a test's temp dir) overflows the
-// 108-byte socket path limit, which makes the browser abort at start.
+// socket path limit (108 bytes on Linux, 104 on macOS), which makes the browser abort at start.
 var browserTempKeys []string

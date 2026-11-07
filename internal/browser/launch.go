@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -104,6 +105,68 @@ func mergeDisableFeatures(extra, ours []string) []string {
 // CrashesDir is the crash-dump directory inside home.
 func CrashesDir(home string) string { return filepath.Join(home, "crashes") }
 
+// DiskCacheDir is the browser's disk cache inside home, passed as --disk-cache-dir on macOS: there
+// Chromium maps a profile under ~/Library/Application Support to a cache under
+// ~/Library/Caches/<the same relative path>, which would put the default data directory's cache
+// outside it (docs/DECISIONS.md D26).
+func DiskCacheDir(home string) string { return filepath.Join(home, "cache") }
+
+// platformLaunchArgsFor returns the extra switches for goos (runtime.GOOS in Launch; a parameter so
+// that the tests of every OS cover every list). The sandbox stays on everywhere: see LaunchOptions
+// and docs/DECISIONS.md.
+//
+//   - Linux and other Unix: --disable-gpu headless (without a GPU, as headless and in WSL, the GPU
+//     probe only logs errors and slows the start).
+//   - Windows: nothing; msedge.exe runs with its sandbox and GPU as usual.
+//   - macOS (D26): --disable-gpu headless, as on Linux; --use-mock-keychain always, for the
+//     headless daemon and the windowed login alike, so the two always agree on the key of the
+//     cookie store: without it Edge creates and reads "Microsoft Edge Safe Storage" in the user's
+//     login keychain (the item the user's own Edge shares by name), which can prompt, or block
+//     under launchd while the keychain is locked; --disk-cache-dir=<home>/cache always (see
+//     DiskCacheDir). No --password-store: that switch is Linux-only.
+func platformLaunchArgsFor(goos string, headless bool, home string) []string {
+	var args []string
+	switch goos {
+	case "windows":
+		return nil
+	case "darwin":
+		if headless {
+			args = append(args, "--disable-gpu")
+		}
+		args = append(args, "--use-mock-keychain", "--disk-cache-dir="+DiskCacheDir(home))
+	default:
+		if headless {
+			args = append(args, "--disable-gpu")
+		}
+	}
+	return args
+}
+
+// platformDisabledFeaturesFor are features switched off on goos whatever LaunchOptions say (merged
+// into the same --disable-features switch as DisabledEdgeFeatures). On macOS: the native
+// notification paths. worker.js still calls the original showNotification after it has captured a
+// notification; on a Mac that would go to the Notification Center, i.e. a permission prompt for
+// the browser that nobody answers, or real banners repeating Teams content on the Mac. Without them
+// Chromium falls back to its own message center, which is invisible headless (what Linux headless
+// already does). Capture is unaffected: the hook sees the call before the browser does.
+func platformDisabledFeaturesFor(goos string) []string {
+	if goos == "darwin" {
+		return []string{"NativeNotifications", "SystemNotifications"}
+	}
+	return nil
+}
+
+// platformBrowserEnvFor are environment variables set for the browser on goos. On macOS Crashpad
+// ignores --user-data-dir and --crash-dumps-dir and would write into the user's own
+// ~/Library/Application Support/Microsoft Edge/Crashpad; BREAKPAD_DUMP_LOCATION points it at
+// CrashesDir(home) instead (with --disable-crash-reporter nothing is uploaded either way).
+func platformBrowserEnvFor(goos, home string) map[string]string {
+	if goos == "darwin" {
+		return map[string]string{"BREAKPAD_DUMP_LOCATION": CrashesDir(home)}
+	}
+	return nil
+}
+
 // TempDir is the browser's private temp directory on Windows (TMP and TEMP point there). Chromium
 // creates scoped_dir* folders and Edge a cv_debug.log in the temp directory, and a browser that is
 // killed never removes them: without this they would pile up in the user's own %TEMP%. Launch
@@ -155,6 +218,9 @@ func Launch(ctx context.Context, o LaunchOptions) (*Process, error) {
 	if err := os.MkdirAll(crashes, 0o700); err != nil {
 		return nil, fmt.Errorf("browser: crashes dir: %w", err)
 	}
+	// A browser left running by an earlier daemon that died without closing it (on macOS there is
+	// no Pdeathsig) holds the profile: the new one would hand over to it and exit.
+	killStaleBrowser(profile, log)
 	tmp := TempDir(o.Home)
 	if len(browserTempKeys) > 0 {
 		if err := os.RemoveAll(tmp); err != nil {
@@ -192,11 +258,12 @@ func Launch(ctx context.Context, o LaunchOptions) (*Process, error) {
 	}
 	// Chromium's sandbox stays on everywhere: the browser holds a production Teams session. Where
 	// it cannot work (containers without user namespaces), add --no-sandbox via browser_args.
-	args = append(args, platformLaunchArgs(o.Headless)...)
+	args = append(args, platformLaunchArgsFor(runtime.GOOS, o.Headless, o.Home)...)
 	var disable []string
 	if !o.ImplicitSignin {
 		disable = append(disable, DisabledEdgeFeatures...)
 	}
+	disable = append(disable, platformDisabledFeaturesFor(runtime.GOOS)...)
 	args = append(args, mergeDisableFeatures(o.ExtraArgs, disable)...)
 	args = append(args, "about:blank")
 
@@ -205,10 +272,13 @@ func Launch(ctx context.Context, o LaunchOptions) (*Process, error) {
 	if env == nil {
 		env = os.Environ()
 	}
-	cmd.Env = env
 	if len(browserTempKeys) > 0 {
-		cmd.Env = withEnv(env, tmp, browserTempKeys...)
+		env = withEnv(env, tmp, browserTempKeys...)
 	}
+	for k, v := range platformBrowserEnvFor(runtime.GOOS, o.Home) {
+		env = withEnv(env, v, k)
+	}
+	cmd.Env = env
 	configureSysProcAttr(cmd)
 
 	// Our own pipe rather than cmd.StderrPipe: Wait closes a StderrPipe as soon as the main process

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -20,7 +21,7 @@ func fakeBrowser(t *testing.T, body string) (path, argsFile string) {
 	dir := t.TempDir()
 	argsFile = filepath.Join(dir, "args")
 	path = filepath.Join(dir, "browser.sh")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$TBD_FAKE_ARGS\"\nprintf '%s\\n' \"TMP=$TMP\" \"TEMP=$TEMP\" \"TMPDIR=$TMPDIR\" > \"$TBD_FAKE_ARGS.env\"\n" + body + "\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$TBD_FAKE_ARGS\"\nprintf '%s\\n' \"TMP=$TMP\" \"TEMP=$TEMP\" \"TMPDIR=$TMPDIR\" \"BREAKPAD_DUMP_LOCATION=$BREAKPAD_DUMP_LOCATION\" > \"$TBD_FAKE_ARGS.env\"\n" + body + "\n"
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -60,8 +61,13 @@ sleep 1 & wait`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "TMP=" + os.Getenv("TMP") + "\nTEMP=" + os.Getenv("TEMP") + "\nTMPDIR=" + os.Getenv("TMPDIR") + "\n"; string(envb) != want {
-		t.Errorf("browser temp env (must be inherited outside Windows):\n%s\nwant:\n%s", envb, want)
+	breakpad := os.Getenv("BREAKPAD_DUMP_LOCATION")
+	if runtime.GOOS == "darwin" {
+		breakpad = CrashesDir(home)
+	}
+	if want := "TMP=" + os.Getenv("TMP") + "\nTEMP=" + os.Getenv("TEMP") + "\nTMPDIR=" + os.Getenv("TMPDIR") +
+		"\nBREAKPAD_DUMP_LOCATION=" + breakpad + "\n"; string(envb) != want {
+		t.Errorf("browser env (temp inherited outside Windows; crash dumps into the home on macOS):\n%s\nwant:\n%s", envb, want)
 	}
 	if _, err := os.Stat(TempDir(home)); !os.IsNotExist(err) {
 		t.Errorf("a temp dir was created outside Windows: %v", err)
@@ -82,18 +88,61 @@ sleep 1 & wait`)
 		"--crash-dumps-dir=" + CrashesDir(home),
 		"--headless=new",
 		"--user-agent=" + ua,
-		"--disable-gpu",
-		"--disable-features=msImplicitSignin",
+	}
+	// The per-OS lists themselves are pinned in platform_test.go; this checks that Launch uses this
+	// OS's list, in this place.
+	want = append(want, platformLaunchArgsFor(runtime.GOOS, true, home)...)
+	want = append(want,
+		"--disable-features="+strings.Join(append([]string{"msImplicitSignin"}, platformDisabledFeaturesFor(runtime.GOOS)...), ","),
 		"--extra",
 		"about:blank",
-	}
+	)
 	if strings.Join(args, "\n") != strings.Join(want, "\n") {
 		t.Errorf("args =\n%s\nwant\n%s", strings.Join(args, "\n"), strings.Join(want, "\n"))
 	}
+	mock := false
 	for _, a := range args {
 		if a == "--no-sandbox" || a == "--disable-dev-shm-usage" {
 			t.Errorf("unexpected switch %s", a)
 		}
+		mock = mock || a == "--use-mock-keychain"
+	}
+	if mock != (runtime.GOOS == "darwin") {
+		t.Errorf("--use-mock-keychain present = %v on %s (macOS only, D26)", mock, runtime.GOOS)
+	}
+}
+
+// TestLaunchImplicitSigninKeepsPlatformFeatures: implicit_signin drops msImplicitSignin, but the
+// features this OS always disables (macOS: native notifications) stay.
+func TestLaunchImplicitSigninKeepsPlatformFeatures(t *testing.T) {
+	path, argsFile := fakeBrowser(t, `echo "DevTools listening on ws://127.0.0.1:1/devtools/browser/fake" >&2
+sleep 1 & wait`)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	p, err := Launch(ctx, LaunchOptions{
+		Path: path, Home: t.TempDir(), ImplicitSignin: true,
+		Env: append(os.Environ(), "TBD_FAKE_ARGS="+argsFile), Logger: testLogger(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close(ctx)
+	b, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, a := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		if strings.HasPrefix(a, "--disable-features=") {
+			got = append(got, a)
+		}
+	}
+	var want []string
+	if f := platformDisabledFeaturesFor(runtime.GOOS); len(f) > 0 {
+		want = []string{"--disable-features=" + strings.Join(f, ",")}
+	}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("--disable-features with implicit_signin: %q, want %q", got, want)
 	}
 }
 

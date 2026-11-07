@@ -19,8 +19,9 @@ import (
 // configureSysProcAttr is a no-op on Windows; the process tree is tracked with a job object.
 func configureSysProcAttr(cmd *exec.Cmd) {}
 
-// platformLaunchArgs adds nothing on Windows: msedge.exe runs with its sandbox and GPU as usual.
-func platformLaunchArgs(headless bool) []string { return nil }
+// killStaleBrowser has nothing to do on Windows: the job object (KILL_ON_JOB_CLOSE) ends the
+// browser with the daemon, however the daemon ends.
+func killStaleBrowser(string, *slog.Logger) {}
 
 // procTree tracks msedge.exe and the children it spawns in a job object. The job has
 // KILL_ON_JOB_CLOSE, so when the daemon exits for any reason (even a crash) Windows closes the

@@ -16,10 +16,6 @@ import (
 	"github.com/alien2003/teams-bridge/internal/browser"
 	"github.com/alien2003/teams-bridge/internal/config"
 	"github.com/alien2003/teams-bridge/internal/hook"
-
-	"github.com/chromedp/cdproto"
-	cdpbrowser "github.com/chromedp/cdproto/browser"
-	"github.com/chromedp/chromedp/remote"
 )
 
 // capture records everything a session hands to its Handlers.
@@ -353,6 +349,18 @@ func TestE2EUserAgentAndClientHints(t *testing.T) {
 	if env.Platform != "Windows" || env.Mobile == nil || *env.Mobile {
 		t.Errorf("userAgentData platform=%q mobile=%v", env.Platform, env.Mobile)
 	}
+	// navigator.platform: Windows says Win32 itself, macOS is overridden to match (D26), Linux keeps
+	// its own value (the combination proven in production).
+	switch runtime.GOOS {
+	case "windows", "darwin":
+		if env.NavPlatform != "Win32" {
+			t.Errorf("navigator.platform = %q, want Win32", env.NavPlatform)
+		}
+	case "linux":
+		if !strings.HasPrefix(env.NavPlatform, "Linux") {
+			t.Errorf("navigator.platform = %q, want the browser's own Linux value", env.NavPlatform)
+		}
+	}
 	he := env.HighEntropy
 	if pv, _ := he["platformVersion"].(string); pv != "19.0.0" {
 		t.Errorf("platformVersion = %v, want 19.0.0", he["platformVersion"])
@@ -490,11 +498,11 @@ func TestE2EDisconnectWhenBrowserDies(t *testing.T) {
 }
 
 // TestE2ELoginWindowed is the `tbd login` flow with a real window: it runs on Windows (a window
-// flashes for a few seconds) and on Linux only with a display.
+// flashes for a few seconds), on Linux only with a display and on macOS in a GUI session
+// (RequireGUI). The test closes the window, not the browser: on macOS the browser keeps running
+// without windows, and Login must still return.
 func TestE2ELoginWindowed(t *testing.T) {
-	if runtime.GOOS != "windows" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
-		t.Skip("no display: a windowed login cannot run here (it runs on the Windows host)")
-	}
+	RequireGUI(t)
 	path := devBrowser(t)
 	srv := New()
 	t.Cleanup(srv.Close)
@@ -536,7 +544,11 @@ func TestE2ELoginWindowed(t *testing.T) {
 	}
 
 	// The user closes the window.
-	closeViaCDP(t, ws)
+	cctx, ccancel := context.WithTimeout(ctx, 10*time.Second)
+	if n, err := ClosePageTargets(cctx, ws); err != nil || n == 0 {
+		t.Fatalf("closing the login window: %d pages, %v", n, err)
+	}
+	ccancel()
 
 	select {
 	case err := <-done:
@@ -546,22 +558,6 @@ func TestE2ELoginWindowed(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("Login did not return after the window closed")
 	}
-}
-
-func closeViaCDP(t *testing.T, wsURL string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	conn, err := remote.DialContext(ctx, wsURL)
-	if err != nil {
-		t.Fatalf("dial %s: %v", wsURL, err)
-	}
-	defer conn.Close()
-	if err := conn.Write(ctx, &cdproto.Message{ID: 1, Method: cdproto.MethodType(cdpbrowser.CommandClose)}); err != nil {
-		t.Fatalf("Browser.close: %v", err)
-	}
-	reply := &cdproto.Message{}
-	_ = conn.Read(ctx, reply)
 }
 
 // TestE2ENotificationShim drives the window.Notification shim from the page, as Teams would use it.

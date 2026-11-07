@@ -18,10 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chromedp/cdproto"
-	cdpbrowser "github.com/chromedp/cdproto/browser"
-	"github.com/chromedp/chromedp/remote"
-
 	"github.com/alien2003/teams-bridge/internal/browser"
 	"github.com/alien2003/teams-bridge/internal/config"
 	"github.com/alien2003/teams-bridge/internal/daemon"
@@ -162,12 +158,12 @@ func TestBinaryStatusInstallDryRunVersion(t *testing.T) {
 	}
 }
 
-// TestBinaryLoginWindowed is BRIEF §7's `tbd login` against faketeams: a windowed run that the
-// test closes over CDP once the page has been on teams_url long enough to count as signed in.
+// TestBinaryLoginWindowed is BRIEF §7's `tbd login` against faketeams: a windowed run whose window
+// the test closes over CDP (Target.closeTarget, as a user closing it; on macOS the browser keeps
+// running without windows) once the page has been on teams_url long enough to count as signed in.
+// It needs a GUI: the Windows host, Linux with WSLg, a macOS GUI session (faketeams.RequireGUI).
 func TestBinaryLoginWindowed(t *testing.T) {
-	if runtime.GOOS != "windows" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
-		t.Skip("no display: the windowed login runs on the Windows host (and on Linux with WSLg)")
-	}
+	faketeams.RequireGUI(t)
 	exe := tbdExe(t)
 	needBrowser(t)
 	teams, _, home := fixture(t)
@@ -188,7 +184,11 @@ func TestBinaryLoginWindowed(t *testing.T) {
 		t.Fatalf("the login window never loaded Teams\n%s", out.String())
 	}
 	time.Sleep(browser.DefaultLoginSettle + 2*time.Second) // "signed in" = stayed on Teams for the settle time
-	closeWindow(t, ws)
+	cctx, ccancel := context.WithTimeout(ctx, 10*time.Second)
+	if n, err := faketeams.ClosePageTargets(cctx, ws); err != nil || n == 0 {
+		t.Fatalf("closing the login window: %d pages, %v\n%s", n, err, out.String())
+	}
+	ccancel()
 	select {
 	case err := <-done:
 		if err != nil || !strings.Contains(out.String(), "Signed in") {
@@ -222,21 +222,6 @@ func devToolsURL(t *testing.T, ctx context.Context, profile string, done <-chan 
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
-}
-
-func closeWindow(t *testing.T, wsURL string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	conn, err := remote.DialContext(ctx, wsURL)
-	if err != nil {
-		t.Fatalf("dial %s: %v", wsURL, err)
-	}
-	defer conn.Close()
-	if err := conn.Write(ctx, &cdproto.Message{ID: 1, Method: cdproto.MethodType(cdpbrowser.CommandClose)}); err != nil {
-		t.Fatalf("Browser.close: %v", err)
-	}
-	_ = conn.Read(ctx, &cdproto.Message{})
 }
 
 func withoutEnv(env []string, keys ...string) []string {
