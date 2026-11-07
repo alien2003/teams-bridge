@@ -1,5 +1,5 @@
-# CI (D22): lint, Go tests against a real browser on Linux and Windows, Android JVM tests and the
-# debug APK. Every toolchain comes from mise.toml through mise-action, as on the dev PC; each job
+# CI (D22): lint, Go tests against a real browser on Linux, Windows and macOS (Apple Silicon and
+# Intel, D26), Android JVM tests and the debug APK. Every toolchain comes from mise.toml through mise-action, as on the dev PC; each job
 # disables the tools it does not need (MISE_DISABLE_TOOLS) and keeps its own mise cache. Caches are
 # restored everywhere and written only by pushes to main. No secrets: the APK is built with the
 # placeholder google-services.json and a throwaway debug key.
@@ -81,16 +81,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # macos-latest is Apple Silicon, macos-15-intel x86_64: each release binary's architecture
+        # runs natively (D26).
+        os: [ubuntu-latest, windows-latest, macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
     defaults:
       run:
-        shell: bash # Git Bash on Windows
+        shell: bash # Git Bash on Windows; on macOS whichever bash is first on the PATH (maybe 3.2)
     env:
       MISE_DISABLE_TOOLS: java,gradle,go:honnef.co/go/tools/cmd/staticcheck,actionlint,zizmor,shellcheck
+      # On macOS the windowed login tests (an Aqua session) and the launchd round trips (the user's
+      # gui/<uid> domain) must run: a skip there is a failure (D26).
+      TBD_REQUIRE_GUI: ${{ startsWith(matrix.os, 'macos') && '1' || '' }}
+      TBD_REQUIRE_LAUNCHD: ${{ startsWith(matrix.os, 'macos') && '1' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -111,8 +117,8 @@ jobs:
           path: |
             .xdg/go/pkg/mod
             .xdg/cache/go-build
-          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum', 'mise.toml') }}
-          restore-keys: go-test-${{ runner.os }}-
+          key: go-test-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum', 'mise.toml') }}
+          restore-keys: go-test-${{ runner.os }}-${{ runner.arch }}-
       - name: Browser
         if: runner.os == 'Linux'
         run: microsoft-edge --version # the runner's Edge; on Windows --version would open a window (D7)
@@ -124,13 +130,34 @@ jobs:
       - name: Allow the browser's user-namespace sandbox
         if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      # The runner's Edge in /Applications, found as users' Macs find it. Its first start pays
+      # Gatekeeper's first-launch scan, which must not eat a test's 30 s DevTools timeout (D25):
+      # --version pays it here. The rest is for D26: the Info.plist format tbd reads the version
+      # from, whether the job runs in a GUI (Aqua) session, the OS and the architecture.
+      - name: Browser (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          app="/Applications/Microsoft Edge.app"
+          "$app/Contents/MacOS/Microsoft Edge" --version
+          echo "Info.plist: $(head -c 6 "$app/Contents/Info.plist" | LC_ALL=C tr -c '[:print:]' '?')…, CFBundleShortVersionString $(plutil -extract CFBundleShortVersionString raw "$app/Contents/Info.plist")"
+          echo "launchctl managername: $(launchctl managername)"
+          sw_vers
+          echo "uname -m: $(uname -m), hw.optional.arm64: $(sysctl -n hw.optional.arm64 2>/dev/null || echo absent)"
+      - name: Footprint baseline (macOS)
+        if: runner.os == 'macOS'
+        run: scripts/ci-mac-footprint.sh before
       - name: go test
         run: mise exec -- bash scripts/test-go.sh
+      # What the tests left under ~/Library, in the keychain, in launchd and as processes: paths
+      # and counts in the step summary; fails on what must not stay (scripts/ci-mac-footprint.sh).
+      - name: Footprint (macOS)
+        if: always() && runner.os == 'macOS'
+        run: scripts/ci-mac-footprint.sh after
       - name: Upload the test log
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: go-test-log-${{ runner.os }}
+          name: go-test-log-${{ runner.os }}-${{ runner.arch }}
           path: .tmp/go-test.log
           include-hidden-files: true # .tmp/ is a dot directory
           retention-days: 7

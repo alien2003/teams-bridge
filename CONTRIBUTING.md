@@ -33,9 +33,22 @@ mise run edge                                  # a headless Edge for the tests, 
 | `mise run build` | `dist/tbd`, `dist/tbd.exe`, `dist/tbd-darwin-arm64`, `dist/tbd-darwin-amd64`, `dist/teams-bridge-debug.apk` | to try a change |
 
 CI (`.github/workflows/ci.yml`) runs lint, lint-ci, the script tests, `secrets-check` without a stop
-list, the Go tests on Linux and natively on Windows against the runners' Edge, and the Android tests
-and debug build. `mise run test-win` runs the Windows tests from WSL in a sandbox folder on the
-Windows host (`TBD_WIN_SANDBOX`); without such a setup, rely on the CI Windows job.
+list, the Go tests against the runners' Edge on Linux, natively on Windows and on macOS (Apple
+Silicon and Intel), and the Android tests and debug build. `mise run test-win` runs the Windows
+tests from WSL in a sandbox folder on the Windows host (`TBD_WIN_SANDBOX`); without such a setup,
+rely on the CI Windows job.
+
+**macOS** is tested only on CI unless you have a Mac: the code that differs is either a pure
+function of the OS, tested on every system (`mac_test.go`, `platform_test.go`, the launchd
+goldens), or a `*_darwin_test.go` that runs on the macOS legs, which also set `TBD_REQUIRE_GUI=1`
+and `TBD_REQUIRE_LAUNCHD=1` so that the windowed and launchd tests fail instead of skipping, and
+end with a footprint check (`scripts/ci-mac-footprint.sh`: nothing left in the keychain, in
+launchd, under `~/Library` or as a running browser). `mise run lint` vets the darwin targets on
+any system. The scripts the macOS jobs run (`build.sh`, `test-go.sh`, `version.sh`,
+`ci-mac-footprint.sh`) must work with macOS's bash 3.2: no `mapfile`, associative arrays,
+`${x,,}`, `;;&` or `&>>`, and an array that may be empty is written `${a[@]+"${a[@]}"}`;
+`mise run test-scripts` checks it. Tests that touch launchd use a `tbd-test-<12 hex>` job
+(`TBD_TEST_SERVICE_NAME`), never `tbd`.
 `mise run check-outside` verifies that nothing was written outside the repository except what
 [`OUTSIDE.md`](OUTSIDE.md) lists; it compares against `.tmp/stamp` and is optional for contributors.
 

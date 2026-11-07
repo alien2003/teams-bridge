@@ -1032,3 +1032,53 @@ Service (`internal/service`, `internal/daemon`):
   bootout that stays down, start after it, uninstall; `~/Library/LaunchAgents` unchanged) and
   `TestBinaryLaunchAgent` (the real `tbd install`, `status`, `stop`, `start`, a SIGKILL, and
   `uninstall` against fake Teams; CI only).
+
+CI (`.github/workflows/ci.yml`, the `go` job):
+
+* **Four legs:** `ubuntu-latest`, `windows-latest`, `macos-latest` (Apple Silicon) and
+  `macos-15-intel` (x86_64, the last announced Intel image), so each release binary's architecture
+  runs natively; standard runners cost nothing for a public repository, and the two macOS legs plus
+  the release's two `macos` jobs stay within the five concurrent macOS jobs. `timeout-minutes` 45
+  (the arm64 runner has three vCPUs; `test-go.sh` keeps `-p 2` on CI). The Go cache key and the
+  test-log artifact carry `runner.arch` as well as `runner.os`, so the two macOS legs never share
+  a build cache.
+* **No skips on macOS:** the legs set `TBD_REQUIRE_GUI=1` (the windowed login tests need the Aqua
+  session) and `TBD_REQUIRE_LAUNCHD=1` (`TestLaunchdRoundTrip`, `TestBinaryLaunchAgent`), next to
+  `TBD_REQUIRE_BROWSER=1` from `test-go.sh`. Job-level `env` cannot read the `runner` context, so
+  the values come from `startsWith(matrix.os, 'macos')`; on Linux and Windows they are empty.
+* **Browser (macOS) step:** `"/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"
+  --version` before the tests pays Gatekeeper's first-launch scan, which must not eat the first
+  test's 30 s DevTools timeout (D25), and the step logs, for this entry, the first bytes of the
+  bundle's `Info.plist` (XML or `bplist`), its `CFBundleShortVersionString`,
+  `launchctl managername`, `sw_vers`, `uname -m` and `hw.optional.arm64`.
+* **Footprint** (`scripts/ci-mac-footprint.sh`, the macOS counterpart of the D14 measurement):
+  `before` the tests it touches a stamp in `.tmp/mac-footprint/` and records whether the login
+  keychain holds `Microsoft Edge Safe Storage` (existence only, never the secret) and how many lines
+  of the Notification Center settings (`com.apple.ncprefs`) name Edge's bundle; `after` (always,
+  also after a failure) it writes paths and counts only to the log and the step summary, and fails
+  on a new keychain item (the mock keychain was ignored, risk R2), a `tbd-test-*` launchd job or
+  `~/Library/LaunchAgents/tbd-test-*` file, a job or plist named `tbd`, the default data directory
+  or a `tbd-test-*` directory under `~/Library`, or a browser still running on a `--user-data-dir`
+  10 s after the tests. Reported only: the files under `~/Library` newer than the stamp whose path
+  names a browser, Microsoft, tbd, LaunchAgents, background items or Crashpad (whether
+  `BREAKPAD_DUMP_LOCATION` and `--disk-cache-dir` hold), and a change of the Notification Center
+  count (risk R7, a warning). It runs with the runner's bash and is in the bash 3.2 guard.
+* **Not on macOS:** lint (darwin is vetted and staticchecked by `lint.sh` on Linux), lint-ci and
+  the Android job.
+
+Documents: the README gains macOS in the prerequisites, the asset list ("each of the seven"), the
+download and verification commands (`uname -m` / `sysctl -n hw.optional.arm64` to pick the
+binary, `shasum -a 256 -c -` on the one line of `SHA256SUMS`, `gh attestation verify`), a section
+on Gatekeeper for a binary that is neither Developer-ID signed nor notarized (honestly out of
+scope: a paid Apple Developer account; `curl` and `gh release download` set no quarantine, a
+browser download needs `xattr -d com.apple.quarantine` or *Open Anyway*; never modify the arm64
+binary, its ad-hoc signature would break), a `### macOS` section (data directory, sign-in from
+the Mac's own Terminal and the second Edge in the Dock, the LaunchAgent, its logs and Background
+Items, the mock-keychain trade-off, no notifications on the Mac, awake and logged in) and
+troubleshooting entries (not starting at login, no browser found, Desktop/Documents/Downloads/
+iCloud Drive privacy prompts a LaunchAgent cannot answer, "Apple could not verify"). It says that
+macOS is tested on the runners against fake Teams and has not yet met a real Teams account on a
+Mac (risk R17). SECURITY.md states the at-rest trade-off and the missing Developer ID;
+CONTRIBUTING.md the macOS legs and the bash 3.2 rule; the bug report form offers macOS Apple
+Silicon and Intel. `OUTSIDE.md` is unchanged: on the dev PC the port only cross-builds into
+`dist/`, `.tmp/` and `.xdg/`; everything macOS touches happens on throwaway runners.

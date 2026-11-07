@@ -31,7 +31,7 @@ trademarks of Microsoft Corporation.
 
 ```mermaid
 flowchart LR
-  subgraph PC["Your computer: Linux, WSL or Windows"]
+  subgraph PC["Your computer: Linux, WSL, Windows or macOS"]
     T["Teams web in a headless Edge"] -- "window.Notification hook" --> D["tbd daemon"]
   end
   MS(["Microsoft Teams (cloud)"]) -- "Teams web traffic, as in any browser" --- T
@@ -46,9 +46,12 @@ stopping) the same way; nothing ever travels from the phone back to the computer
 
 ## Prerequisites
 
-* **Computer:** Linux (incl. WSL2) or Windows 10/11, with Microsoft Edge or Chromium/Chrome installed.
-  `tbd` finds Edge in its standard Windows location and `microsoft-edge`, `chromium`,
-  `chromium-browser` or `google-chrome` on Linux; set `browser = "/path"` in `config.toml` otherwise.
+* **Computer:** Linux (incl. WSL2), Windows 10/11 or macOS 13 or newer (Apple Silicon or Intel),
+  with Microsoft Edge or Chromium/Chrome installed. `tbd` finds Edge in its standard Windows
+  location, `microsoft-edge`, `chromium`, `chromium-browser` or `google-chrome` on Linux, and
+  Microsoft Edge, Chromium or Google Chrome in `/Applications` or `~/Applications` on macOS; set
+  `browser = "/path"` in `config.toml` otherwise (on macOS an app bundle works too:
+  `browser = "/Applications/Microsoft Edge Beta.app"`).
 * **Firebase project** (free tier is enough):
   1. Create a project at <https://console.firebase.google.com/>.
   2. Add an Android app with package name `io.github.alien2003.teamsbridge`; download its
@@ -56,7 +59,8 @@ stopping) the same way; nothing ever travels from the phone back to the computer
   3. Cloud Messaging is enabled by default for new projects (*Project settings → Cloud Messaging*:
      "Firebase Cloud Messaging API (V1)" must be *Enabled*).
   4. *Project settings → Service accounts → Generate new private key* → save the JSON next to the
-     daemon's config (e.g. `~/.local/share/tbd/fcm.sa.json`, mode 0600) and set
+     daemon's config (e.g. `~/.local/share/tbd/fcm.sa.json`; macOS:
+     `~/Library/Application Support/tbd/fcm.sa.json`; mode 0600) and set
      `fcm_service_account = "fcm.sa.json"` in `config.toml`.
 * **Phone:** Android 9 (API 28) or newer with Google Play services.
 
@@ -80,11 +84,12 @@ mapping, the Linux, Windows and two macOS binaries, `SHA256SUMS`); it needs a re
 ## Install from a release
 
 Every [release](https://github.com/alien2003/teams-bridge/releases) is built by GitHub Actions from
-the tagged commit and carries `tbd-linux-amd64`, `tbd-windows-amd64.exe`, `teams-bridge.apk`,
+the tagged commit and carries `tbd-linux-amd64`, `tbd-windows-amd64.exe`, `tbd-darwin-arm64`
+(macOS, Apple Silicon), `tbd-darwin-amd64` (macOS, Intel), `teams-bridge.apk`,
 `teams-bridge-mapping.txt.gz` (to read an obfuscated stack trace) and `SHA256SUMS`, each of the
-five with a build provenance attestation. The names carry no version, so
-`https://github.com/alien2003/teams-bridge/releases/latest/download/<name>` always points at the
-newest release. Tags `vX.Y.Z-rc.N` are prereleases; what changed is in [`CHANGELOG.md`](CHANGELOG.md).
+seven with a build provenance attestation (the macOS binaries from 0.2.0 on). The names carry no
+version, so `https://github.com/alien2003/teams-bridge/releases/latest/download/<name>` always
+points at the newest release. Tags `vX.Y.Z-rc.N` are prereleases; what changed is in [`CHANGELOG.md`](CHANGELOG.md).
 
 **The release APK is built for the maintainer's Firebase project:** it receives only what is sent
 with that project's service account. With your own Firebase project (see Prerequisites), take the
@@ -129,6 +134,38 @@ On Windows, compare `Get-FileHash tbd-windows-amd64.exe` with `SHA256SUMS`, then
 `Unblock-File tbd-windows-amd64.exe`; the binary has no Authenticode signature, so SmartScreen may
 warn. Rename it to `tbd.exe` (on Linux: `install -m755 tbd-linux-amd64 ~/.local/bin/tbd`).
 
+On macOS, take `tbd-darwin-arm64` on Apple Silicon and `tbd-darwin-amd64` on an Intel Mac. macOS
+has no `sha256sum`; `shasum -a 256` does the same:
+
+```sh
+uname -m                      # arm64: tbd-darwin-arm64; x86_64: tbd-darwin-amd64
+sysctl -n hw.optional.arm64   # 1 on Apple Silicon, also in a Terminal that runs under Rosetta
+base=https://github.com/alien2003/teams-bridge/releases/latest/download
+curl -fLO "$base/tbd-darwin-arm64" -fLO "$base/SHA256SUMS"
+grep tbd-darwin-arm64 SHA256SUMS | shasum -a 256 -c -
+gh attestation verify tbd-darwin-arm64 -R alien2003/teams-bridge \
+  --signer-workflow alien2003/teams-bridge/.github/workflows/release.yml
+mkdir -p ~/.local/bin && install -m 755 tbd-darwin-arm64 ~/.local/bin/tbd
+```
+
+`~/.local/bin` is not on macOS's default `PATH`: add `export PATH="$HOME/.local/bin:$PATH"` to
+`~/.zprofile` (or install anywhere else on your `PATH` that is not under Desktop, Documents,
+Downloads or iCloud Drive, see *macOS* below).
+
+**The macOS binaries are not signed with an Apple Developer ID and not notarized.** Both need a
+paid Apple Developer Program membership, which this spare-time project does not have, so it is out
+of scope; the checksum and the provenance attestation above are what vouch for the binary. The
+Apple Silicon binary carries the ad-hoc signature that every arm64 program needs (the Go linker
+writes it); never strip or otherwise modify the file, or macOS refuses to run it. What Gatekeeper
+does with it depends on how you downloaded it:
+
+* With `curl` or `gh release download`, the file gets no quarantine attribute and runs as is.
+* With a browser, it carries `com.apple.quarantine`, and macOS refuses to open it ("Apple could not
+  verify … is free of malware"). After checking the checksum, remove the attribute,
+  `xattr -d com.apple.quarantine tbd-darwin-arm64`, or run it once and then choose *Open Anyway*
+  in System Settings → Privacy & Security. `tbd install` reminds you if the binary still carries
+  the attribute.
+
 **Switching from a self-built debug APK to the release APK** takes one uninstall: Android never
 updates an app with one signed by a different key, and Obtainium warns that the release APK "is
 signed with a different certificate than the installed version" (do not choose to install anyway).
@@ -141,7 +178,8 @@ Teams in**, allow notifications and exempt the app from battery optimisation aga
 ## Set up
 
 Put the binary on your `PATH` (Linux: `install -m755 dist/tbd ~/.local/bin/tbd`; Windows: copy
-`dist\tbd.exe` to e.g. `%LOCALAPPDATA%\Programs\tbd\`) and run the commands below from outside the
+`dist\tbd.exe` to e.g. `%LOCALAPPDATA%\Programs\tbd\`; macOS: see *Install from a release*, or
+`install -m755 dist/tbd-darwin-arm64 ~/.local/bin/tbd`) and run the commands below from outside the
 repository: inside the checkout, mise sets `TBD_HOME` to the development data dir `.local/tbd`.
 
 ```sh
@@ -156,7 +194,7 @@ Teams (a browser, or the Teams PWA if you installed one), and allow notification
 
 ```sh
 tbd test-push  # a test notification should arrive on the phone
-tbd install    # start the daemon at logon (systemd user unit / Windows scheduled task)
+tbd install    # start the daemon at logon (systemd user unit / Windows scheduled task / macOS LaunchAgent)
 tbd status     # pairing, browser, last heartbeat and last delivered message
 ```
 
@@ -167,8 +205,9 @@ the phone gets a "session expired" alert.
 `tbd stop` stops the running daemon, whichever way it was started: it asks it to stop gracefully
 (the phone gets a "daemon stopping" alert, the browser closes) and ends it only if it is still
 running after 20 s (`--timeout`). `tbd start` starts the installed service again
-(`systemctl --user start tbd.service`, or `schtasks /run /tn tbd` on Windows); with a daemon already
-running it does nothing. `tbd login` and `tbd pair --new` refuse while the daemon runs, and say so.
+(`systemctl --user start tbd.service`, `schtasks /run /tn tbd` on Windows, `launchctl kickstart` or
+`launchctl bootstrap` on macOS); with a daemon already running it does nothing. `tbd login` and
+`tbd pair --new` refuse while the daemon runs, and say so.
 
 ### WSL
 
@@ -190,6 +229,38 @@ and start it; ending the task (`schtasks /end /tn tbd`, or *End* in Task Schedul
 
 Edge keeps some per-user bookkeeping in the registry no matter which profile it runs
 (`HKCU\Software\Microsoft\Edge\…`); for the `tbd` profile that is the key `PreferenceMACs\tbd`.
+
+### macOS
+
+New in 0.2.0, for macOS 13 or newer on Apple Silicon and Intel. It is tested on GitHub's macOS
+runners of both architectures, with their Edge, against the fake Teams of the test suite; it has
+not been used against a real Teams account on a Mac yet, so reports are welcome.
+
+* **Data directory:** `~/Library/Application Support/tbd` (`config.toml`, the browser profile,
+  `tbd.log`). `--home` and `TBD_HOME` override it as elsewhere.
+* **Sign in from the Mac itself:** run `tbd login` in Terminal on the Mac, not over SSH (the window
+  needs your desktop session). A second Edge icon appears in the Dock: that is the daemon's own
+  profile, separate from your Edge. Sign in, open Chat, then close the window; `tbd login` ends
+  and quits that browser itself (closing the last window does not quit a Mac app).
+* **Service:** `tbd install` writes the LaunchAgent `~/Library/LaunchAgents/tbd.plist` and loads it
+  into your session (`gui/<uid>`); it starts at every login, is restarted after a crash and stays
+  stopped after `tbd stop` until `tbd start` or the next login. No administrator rights: run it as
+  yourself, never with `sudo`. `launchctl print gui/$(id -u)/tbd` shows the job; the log is
+  `tbd.log` in the data directory, and `tbd.stderr.log` next to it holds only what happens before
+  that log is open. `tbd status` adds a `launchd:` line. macOS may announce "Background Items
+  Added": tbd runs only while it stays allowed in System Settings → General → Login Items
+  (*Login Items & Extensions* on newer versions).
+* **Keychain:** the daemon's browser does not use your login keychain (`--use-mock-keychain`), so
+  there is no keychain prompt and nothing is shared with your own Edge. The trade-off: the
+  profile's cookies (the Teams session) are encrypted at rest with a fixed, publicly known key, so
+  only the data directory's permissions (0700, your account) protect them, as on Linux without a
+  keyring.
+* **Notifications on the Mac:** the daemon's browser runs with Edge's macOS notification support
+  turned off, so Teams' notifications go to tbd and should not also pop up on the Mac.
+* **Awake and logged in:** a LaunchAgent runs in your login session, so tbd works only while you
+  are logged in and the Mac is awake. A sleeping Mac forwards nothing; to keep it awake with the
+  display off, turn on the option to prevent automatic sleeping on power adapter (System Settings →
+  Battery → Options, or Energy, depending on the Mac and the macOS version).
 
 ## Troubleshooting
 
@@ -237,6 +308,18 @@ Edge keeps some per-user bookkeeping in the registry no matter which profile it 
   * "… does not match the signing certificate hash you configured … The install has been
     blocked": the downloaded APK is not signed by the release key. Do not install it; open an
     issue (or a private report, if you suspect tampering).
+* **macOS: the daemon does not start at login.** Check System Settings → General → Login Items
+  (& Extensions): tbd must be allowed in the background. Then `tbd start`, and `tbd status` for the
+  `launchd:` line. Early errors (before `tbd.log` is open) are in `tbd.stderr.log`.
+* **macOS: "no browser found".** `tbd` looks only in `/Applications` and `~/Applications` (and on
+  the `PATH`); for Edge Beta, Dev or Canary, or a browser elsewhere, set
+  `browser = "/path/to/Browser.app"` in `config.toml`.
+* **macOS: a prompt about Desktop, Documents or Downloads, or tbd stops at a file it cannot read.**
+  macOS asks before a program reads those folders or iCloud Drive, and a LaunchAgent has nobody to
+  answer. Keep the binary, the data directory and `fcm.sa.json` outside them (the default data
+  directory is fine).
+* **macOS: "cannot be opened" / "Apple could not verify".** The binary was downloaded with a browser;
+  see the Gatekeeper notes under *Install from a release*.
 * **Reporting a bug:** paste only info-level log lines (they hold structure, counts and lengths, no
   names or message text; replace your user name in paths), never `--log-level debug` output,
   `config.toml`, the pairing code or a picture of the QR code; see the bug report form.

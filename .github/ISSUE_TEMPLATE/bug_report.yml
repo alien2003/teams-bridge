@@ -25,6 +25,8 @@ body:
         - Windows 10/11 (native tbd.exe)
         - WSL2
         - Linux
+        - macOS, Apple Silicon
+        - macOS, Intel
     validations:
       required: true
   - type: input

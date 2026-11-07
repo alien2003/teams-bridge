@@ -175,8 +175,8 @@ phone: MessagingService → decrypt + replay filter → Notifier → tap → Ope
 | `test/faketeams/` | fake Teams (`site/`) + httptest server; browser-level E2E |
 | `android/` | Gradle project, app `io.github.alien2003.teamsbridge`; `…/proto/` = Kotlin twin of `internal/proto`; no Gradle wrapper (mise's `gradle`) |
 | `proto/` | `PROTOCOL.md` + `vectors.json` (frozen, read by Go and Kotlin tests) |
-| `.github/` | `workflows/ci.yml` (lint, Go tests on Linux and Windows with the runners' Edge, Android tests + debug APK; D22), `workflows/release.yml` (tag `v*` → CI, signed build, provenance, published release; D23), `dependabot.yml`, `ISSUE_TEMPLATE/` (issue forms; security → private reporting), `pull_request_template.md` (D24) |
-| `scripts/`, `scripts/win/` | what the mise tasks run; `win/lib.sh` = sandbox helpers; `outside-table.sh` parses the tables of OUTSIDE.md and the git-ignored OUTSIDE.local.md between their markers (keep the five columns); `secrets-lib.sh` = patterns + stop list shared by `secrets-check.sh` and `prepush-check.sh`; `version.sh` (tag → versionCode/Name) and `release-notes.sh` need only bash and git (the release workflow runs them before mise); `obtainium-link.sh` prints the README badge's Obtainium link (APK filter + pinned release certificate, D24) |
+| `.github/` | `workflows/ci.yml` (lint, Go tests on Linux, Windows, macOS arm64 (`macos-latest`) and x86_64 (`macos-15-intel`) with the runners' Edge, the macOS legs with `TBD_REQUIRE_GUI=1`/`TBD_REQUIRE_LAUNCHD=1` and a footprint check; Android tests + debug APK; D22, D26), `workflows/release.yml` (tag `v*` → CI, signed build, provenance, a `macos` job that runs each darwin binary natively, published release; D23, D26), `dependabot.yml`, `ISSUE_TEMPLATE/` (issue forms; security → private reporting), `pull_request_template.md` (D24) |
+| `scripts/`, `scripts/win/` | what the mise tasks run; `win/lib.sh` = sandbox helpers; `outside-table.sh` parses the tables of OUTSIDE.md and the git-ignored OUTSIDE.local.md between their markers (keep the five columns); `secrets-lib.sh` = patterns + stop list shared by `secrets-check.sh` and `prepush-check.sh`; `version.sh` (tag → versionCode/Name) and `release-notes.sh` need only bash and git (the release workflow runs them before mise); `obtainium-link.sh` prints the README badge's Obtainium link (APK filter + pinned release certificate, D24); `ci-mac-footprint.sh before|after` = the macOS legs' footprint check (keychain item, `tbd-test-*` jobs and plists, `~/Library` paths, leftover browsers; paths and counts only, D26) |
 | `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, `docs/assets/` | public documents (D24); the next version's `CHANGELOG.md` section `## [X.Y.Z] - Unreleased` becomes its release notes; `docs/assets/badge_obtainium.png` is Obtainium's (GPL-3.0, the one exception to the WTFPL; text in `docs/assets/LICENSE-GPL-3.0.txt`, source in `docs/assets/README.md`) |
 
 Git-ignored, inside the repo: `.local/` (dev `TBD_HOME=.local/tbd`, `denylist.txt`, the release
@@ -199,8 +199,8 @@ From the repo root (`mise tasks` lists them); anything that is not a task runs a
 | `mise run lint` | gofmt, then go vet for linux/amd64, windows/amd64, darwin/arm64 and darwin/amd64, staticcheck for the first three; before every commit |
 | `mise run lint-ci` | actionlint + `zizmor --offline` over `.github/`, `bash -n` + shellcheck over every script; after touching `.github/` or `scripts/` |
 | `mise run test` | lint, `test-scripts`, `edge`, `build-go`, then `test-go` and the Android JVM tests with warnings as errors |
-| `mise run test-go` | builds `dist/tbd`, then `go test -count=1 ./...` with `TBD_REQUIRE_BROWSER=1` (log in `.tmp/go-test.log`); what CI runs on Linux and, natively, on Windows |
-| `mise run test-scripts` | table tests of `version.sh` and `release-notes.sh`, `obtainium-link_test.sh` (the README's Obtainium link must equal `scripts/obtainium-link.sh`'s output) and `bash32_test.sh` (no bash 4 constructs in `build.sh`, `test-go.sh`, `version.sh`, which macOS runs with bash 3.2; an array that may be empty is written `${a[@]+"${a[@]}"}`); part of `test` and the CI lint job |
+| `mise run test-go` | builds `dist/tbd`, then `go test -count=1 ./...` with `TBD_REQUIRE_BROWSER=1` (log in `.tmp/go-test.log`); what CI runs on Linux and, natively, on Windows and macOS (there `dist/tbd-darwin-<arch>`) |
+| `mise run test-scripts` | table tests of `version.sh` and `release-notes.sh`, `obtainium-link_test.sh` (the README's Obtainium link must equal `scripts/obtainium-link.sh`'s output) and `bash32_test.sh` (no bash 4 constructs in `build.sh`, `test-go.sh`, `version.sh`, `ci-mac-footprint.sh`, which macOS runs with bash 3.2; an array that may be empty is written `${a[@]+"${a[@]}"}`); part of `test` and the CI lint job |
 | `mise exec -- go test -count=1 -run TestX ./internal/hook/` | inner loop on one package |
 | `mise exec -- scripts/test-android.sh` | Android JVM tests only |
 | `mise run test-win` | cross-compiles, runs every `<pkg>.test.exe` in the sandbox, ends with `check-outside-win`; takes minutes and flashes a login window |
@@ -231,7 +231,9 @@ From the repo root (`mise tasks` lists them); anything that is not a task runs a
   a failure with `TBD_REQUIRE_LAUNCHD=1`) and cmd/tbd (`TestBinaryLaunchAgent`: real `tbd install`
   … `uninstall` under launchd, writes `~/Library/LaunchAgents/tbd-test-*.plist`, so only with
   `GITHUB_ACTIONS=true` or `TBD_TEST_LAUNCHD=1`). On Linux they are only vetted (`mise run lint`);
-  everything decidable without a Mac is a GOOS-parameterised test that runs here.
+  everything decidable without a Mac is a GOOS-parameterised test that runs here. A macOS fix is
+  proven only by a green macOS leg of `ci.yml` (read failures with `gh run view --log-failed`;
+  the step summary of `Footprint (macOS)` lists what the tests left).
 - `test/faketeams` raises Alice (window), Bob (sw-page), Carol (sw-worker) once each, records UA,
   client hints and `navigator.platform`, sets a persistent cookie of its own, has a 401 mode, a fake login host (`localhost`) and `Notify()`/`NotifyWith()`.
   `resolver_test.go` runs the real preload's resolver in Edge against chat lists of the measured

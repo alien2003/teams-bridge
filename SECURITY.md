@@ -53,6 +53,11 @@ no relay and no channel back from the phone. The wire protocol is specified in
   them only for allow-listed Teams origins. Input from the Teams page is treated as untrusted
   (strict parsing, size caps, rate limits), because any script on that page can call the hook.
 * **Logs** at the default level hold structure only; content appears only at debug level.
+* **The Teams session at rest** is the browser profile in the data directory (mode 0700). On macOS
+  the daemon's browser uses a mock keychain instead of the login keychain, so its cookies are
+  encrypted with a fixed, publicly known key and only the directory's permissions protect them, as
+  on Linux without a keyring; on Windows they are protected with DPAPI for your account. Anyone who
+  can read your account's files can take the session on any of them (see *Out of scope*).
 
 **Supply chain**
 
@@ -62,6 +67,10 @@ no relay and no channel back from the phone. The wire protocol is specified in
   and has a build provenance attestation (`gh attestation verify`); `SHA256SUMS` lists the other
   assets' checksums.
 * `tbd-windows-amd64.exe` has no Authenticode signature, so Windows SmartScreen may warn.
+  `tbd-darwin-arm64` and `tbd-darwin-amd64` are not signed with an Apple Developer ID and not
+  notarized (that needs a paid Apple Developer account): Gatekeeper refuses a copy downloaded with a
+  browser until its quarantine attribute is removed (README). Verify the checksum and attestation
+  first.
 * Actions are pinned by commit SHA; dependency updates come through Dependabot with a cooldown.
 
 ## Out of scope

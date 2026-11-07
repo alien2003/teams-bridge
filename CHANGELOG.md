@@ -7,6 +7,22 @@ tagged yet is marked "Unreleased" and gets its date when it is tagged.
 
 ## [0.2.0] - Unreleased
 
+### Added
+
+* macOS 13 or newer, on Apple Silicon and Intel: every command works as on Linux and Windows. The
+  data directory is `~/Library/Application Support/tbd`; Microsoft Edge, Chromium or Google Chrome
+  is found in `/Applications` or `~/Applications`, and `browser` in `config.toml` also accepts an
+  app bundle (`/Applications/Microsoft Edge Beta.app`). The daemon's browser uses its own mock
+  keychain instead of the login keychain (no prompts, nothing shared with your own Edge; see the
+  README for the trade-off), shows no macOS notifications of its own and presents the same Windows
+  identity as on the other systems (user agent, client hints, `navigator.platform`).
+* `tbd install` on macOS writes and loads the LaunchAgent `~/Library/LaunchAgents/tbd.plist` (start
+  at login, restart after a crash, logs in `tbd.log`); `tbd start` and `tbd stop` go through
+  `launchctl`, and `tbd status` shows a `launchd:` line. `tbd install` points out a binary that
+  macOS still has in quarantine.
+* CI runs the Go tests, against a real Edge, on GitHub's macOS runners for both architectures, next
+  to Linux and Windows.
+
 ### Changed
 
 * `tbd login` also finishes when the Teams window is closed while the browser keeps running (as

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016 # the rules and fixtures are code in single quotes, not expansions
 # Bash 3.2 guard (D26, mise run test-scripts): macOS ships bash 3.2, and the macOS CI jobs run
-# scripts/build.sh, scripts/test-go.sh and scripts/version.sh with it. This greps those scripts for
-# constructs that bash 3.2 rejects or runs differently, and first proves on a fixture that each
-# pattern is caught. A static check only: the real proof is the macOS CI job.
+# scripts/build.sh, scripts/test-go.sh, scripts/version.sh and scripts/ci-mac-footprint.sh with it.
+# This greps those scripts for constructs that bash 3.2 rejects or runs differently, and first
+# proves on a fixture that each pattern is caught. A static check only: the real proof is the
+# macOS CI job.
 # Usage: bash32_test.sh [FILE...]   (default: the scripts above)
 # A line that must keep a flagged construct carries the comment "bash32: ok" with the reason.
 set -euo pipefail
@@ -101,7 +102,7 @@ for l in "${fixture_ok[@]}"; do
   if ! out="$(check "$self")"; then echo "FAIL false positive: $l ($out)"; fail=1; fi
 done
 
-if (($# == 0)); then set -- scripts/build.sh scripts/test-go.sh scripts/version.sh; fi
+if (($# == 0)); then set -- scripts/build.sh scripts/test-go.sh scripts/version.sh scripts/ci-mac-footprint.sh; fi
 for f in "$@"; do
   n=$((n + 1))
   if ! check "$f"; then fail=1; fi
