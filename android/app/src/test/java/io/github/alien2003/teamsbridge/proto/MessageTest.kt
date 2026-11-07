@@ -29,8 +29,8 @@ class MessageTest {
 
     @Test
     fun escapesAndUnicode() {
-        val m = Message.parse("""{$base,"title":"Boрис \"q\" \\ \/","body":"line1\nline2 😀 <b>&amp;</b>"}""")
-        assertEquals("Boрис \"q\" \\ /", m.title)
+        val m = Message.parse("""{$base,"title":"Zoë Ζωή 李 \"q\" \\ \/","body":"line1\nline2 😀 <b>&amp;</b>"}""")
+        assertEquals("Zoë Ζωή 李 \"q\" \\ /", m.title)
         assertEquals("line1\nline2 😀 <b>&amp;</b>", m.body)
     }
 

@@ -31,10 +31,10 @@ const (
 //   - "login-iframe": an iframe of at least 200×200 px whose src is on a Microsoft login host
 //     (hidden token-renewal iframes are 0×0 and never count).
 //   - "signin-button": a button/link whose whole label is a sign-in label ("Sign in",
-//     "Sign in again", "Use another account", Russian equivalents …) inside a modal dialog, an
-//     alert/status region, or anywhere on a sparse page (≤ 20 rendered interactive elements —
-//     buttons, links, inputs, tabs, menu/tree/list items, editable areas: a login or landing
-//     page, not the Teams app shell). A bot card with a "Sign in" button in an open chat is
+//     "Sign in again", "Use another account", their equivalents in the other languages …)
+//     inside a modal dialog, an alert/status region, or anywhere on a sparse page (≤ 20
+//     rendered interactive elements — buttons, links, inputs, tabs, menu/tree/list items,
+//     editable areas: a login or landing page, not the Teams app shell). A bot card with a "Sign in" button in an open chat is
 //     therefore not a sign-in prompt. Sparseness counts rendered elements even inside
 //     aria-hidden subtrees: a modal dialog makes Fluent UI mark the app shell behind it
 //     aria-hidden, and the shell's chat list (which quotes message text) must not turn into
@@ -44,11 +44,12 @@ const (
 //     "Sign in again" in the visible text of a modal dialog or of a sparse page (not in toasts,
 //     which may quote message text).
 //
-// Labels and phrases are English and Russian, compared case-insensitively with ’ folded to '
-// and ё to е. On a page outside Teams the Detector fires on the URL anyway, so the heuristics
-// matter for Teams' own signed-out UI on the Teams origin, and there they lean to "not signed
-// out": a missed prompt is caught later by a redirect or the 401/403 detector, a false one would
-// page the phone.
+// Labels and phrases are English plus several common Teams UI languages (German, French,
+// Spanish, Portuguese, Italian, Dutch, Polish, Ukrainian, Russian), compared case-insensitively
+// with diacritics removed and ’ folded to '. On a page outside Teams the Detector fires on the
+// URL anyway, so the heuristics matter for Teams' own signed-out UI on the Teams origin, and
+// there they lean to "not signed out": a missed prompt is caught later by a redirect or the
+// 401/403 detector, a false one would page the phone.
 //
 //go:embed probe.js
 var ProbeJS string

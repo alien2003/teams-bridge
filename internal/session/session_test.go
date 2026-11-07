@@ -138,7 +138,7 @@ func TestShortErr(t *testing.T) {
 	if got := shortErr(nil); got != "exited" {
 		t.Errorf("nil: %q", got)
 	}
-	long := errors.New("chrome failed to start:\n" + strings.Repeat("ошибка ", 100))
+	long := errors.New("chrome failed to start:\n" + strings.Repeat("σφάλμα エラー 😀 ", 100))
 	got := shortErr(long)
 	if strings.Contains(got, "\n") || len([]rune(got)) > 160 || !strings.HasSuffix(got, "…") {
 		t.Errorf("long: %q", got)

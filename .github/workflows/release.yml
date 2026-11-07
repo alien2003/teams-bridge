@@ -4,7 +4,8 @@
 #   tag      the tag is a release tag (scripts/version.sh) on main; writes the release notes
 #   verify   the whole CI (ci.yml as a reusable workflow; restores caches, never saves them on a tag)
 #   build    the only job with secrets (environment "release"): scripts/build-release.sh, then SLSA
-#            build provenance for every asset; no caches, so nothing a pull request wrote is restored
+#            build provenance for every asset, SHA256SUMS included; no caches, so nothing a pull
+#            request wrote is restored
 #   publish  the only job that may write to the repository: creates the release from the artifacts
 name: Release
 
@@ -106,7 +107,14 @@ jobs:
       - name: Build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-checksums: dist/release/SHA256SUMS
+          # Every published asset, SHA256SUMS included (subject-checksums would attest only the
+          # files listed in it, not the checksum file itself).
+          subject-path: |
+            dist/release/teams-bridge.apk
+            dist/release/teams-bridge-mapping.txt.gz
+            dist/release/tbd-linux-amd64
+            dist/release/tbd-windows-amd64.exe
+            dist/release/SHA256SUMS
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-assets

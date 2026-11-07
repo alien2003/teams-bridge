@@ -154,7 +154,7 @@ func TestTruncationAlwaysFits(t *testing.T) {
 		}
 		return b.String()
 	}
-	alphabets := [][]rune{[]rune("abc"), []rune("ж😀\"\\\n\x01<>&"), []rune(" \x00\x1f")}
+	alphabets := [][]rune{[]rune("abc"), []rune("λ李😀\"\\\n\x01<>&"), []rune(" \x00\x1f")}
 	for i := range 300 {
 		a := alphabets[i%len(alphabets)]
 		m := Message{V: 1, T: TypeMsg, ID: "id", TS: 1, Title: gen(i%7*200, a), Body: gen(i*13, a), URL: gen(i%5*300, a), Tag: gen(i%3*400, a)}

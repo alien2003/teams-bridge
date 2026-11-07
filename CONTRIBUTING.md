@@ -64,14 +64,16 @@ Windows host (`TBD_WIN_SANDBOX`); without such a setup, rely on the CI Windows j
 `.local/denylist.txt` with one string per line (names and ids that must never be published; a GUID
 is also matched without its dashes; matching ignores case). The list itself is the confidential
 part, so it never leaves the machine it is on: it is not committed, not in CI, and the checks print
-only file and commit names, never the matching text. Keep your own list with values from your own
-tenant if you work on capture code against real Teams, or set `TBD_NO_DENYLIST=1` to run the checks
-without one.
+only file and commit names, never the matching text. It is matched against file contents (binary
+files such as images too), file paths and, before a push, ref names; a path or ref name that holds
+a value is counted, not printed. Keep your own list with values from your own tenant if you work
+on capture code against real Teams, or set `TBD_NO_DENYLIST=1` to run the checks without one.
 
 `mise run hooks` installs `.git/hooks/pre-push`, which runs `scripts/prepush-check.sh` over every
-commit and annotated tag being pushed: the stop list and the secret patterns over each commit's
-files and message, author, committer and tagger e-mail (only the maintainer's address or a
-`users.noreply.github.com` one), and a `+0000` time zone. To match, commit with your GitHub noreply
+commit and annotated tag being pushed: the stop list over each commit's files (contents and
+paths), its message and the pushed ref names; the secret patterns over its files and message;
+author, committer and tagger e-mail (only the maintainer's address or a
+`users.noreply.github.com` one); and a `+0000` time zone. To match, commit with your GitHub noreply
 address and `TZ=UTC git commit …` (or `git config` the address and export `TZ=UTC` in that shell).
 `mise run prepush-check` runs the same check over every ref.
 
@@ -81,14 +83,17 @@ address and `TZ=UTC git commit …` (or `git config` the address and export `TZ=
   `fix(hook): …`, `feat(android): …`, `docs: …`. The release notes are built from `feat`, `fix` and
   `perf` subjects when a version has no changelog section, so write them for users.
 * One concern per pull request; the template's checklist is what CI cannot check.
-* Contributions are under the project's licence, the [WTFPL v2](LICENSE); there is no CLA.
+* Contributions are under the project's licence, the [WTFPL v2](LICENSE); there is no CLA. The
+  one exception is Obtainium's badge in `docs/assets/` (GPL-3.0, see its README).
 
 ## Dependencies
 
 * **Dependabot** (`.github/dependabot.yml`) proposes updates weekly for GitHub Actions (pinned by
   commit SHA), Go modules and the Android Gradle dependencies, after a cooldown of 7 days (30 for a
-  major version), one grouped pull request per ecosystem. Versions are recorded in
-  `docs/DECISIONS.md`, so a Dependabot pull request is merged together with its DECISIONS line.
+  major version): minor and patch updates come as one grouped pull request per ecosystem (all
+  GitHub Actions updates, majors included, are one group), Go and Gradle major updates each as a
+  pull request of their own. Versions are recorded in `docs/DECISIONS.md`, so a Dependabot pull
+  request is merged together with its DECISIONS line.
 * **Updated by hand** (Dependabot does not read them): the tools in `mise.toml` (`mise outdated`
   lists newer versions; bump, `mise install`, `mise run test`), `MISE_VERSION` in
   `.github/workflows/ci.yml` and `release.yml` (both at once, matching the mise used locally),
@@ -99,7 +104,10 @@ address and `TZ=UTC git commit …` (or `git config` the address and export `TZ=
 
 1. Give the version's section in `CHANGELOG.md` its date (`## [X.Y.Z] - YYYY-MM-DD`) and commit.
 2. `TZ=UTC git tag -a vX.Y.Z -m "vX.Y.Z"` on that commit on `main` (`vX.Y.Z-rc.N` for a
-   prerelease) and push the tag. `.github/workflows/release.yml` re-runs CI, builds and signs the
-   assets with the release key from the `release` environment, attests them and publishes the
-   release with the changelog section as its notes (an rc without its own section gets the tag
+   prerelease), then push `main` and the tag together: `git push --atomic origin main vX.Y.Z`.
+   The tag must point at a commit that is on the remote `main`: pushed alone, the tag fails the
+   release workflow's "on main" check (push `main`, then re-run the workflow).
+   `.github/workflows/release.yml` re-runs CI, builds and signs the assets with the release key
+   from the `release` environment, attests them and publishes the release with the changelog
+   section as its notes (an rc without its own section gets the tag
    message, or else the `feat`/`fix`/`perf` commits). Details: `docs/DECISIONS.md` D23.

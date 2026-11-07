@@ -226,7 +226,7 @@ func TestShape(t *testing.T) {
 	}{
 		{"19:abc@thread.v2", 96, "99:aaa@aaaaaa.a9"},
 		{"https://x.example/v1/users/8:orgid:1f2e/profilepicture", 96, "aaaaa://a.aaaaaaa/a9/aaaaa/9:aaaaa:9a9a/aaaaaaaaaaaaaa"},
-		{"Борис Ж. 😀", 96, "aaaaa a. ?"},
+		{"Zoë Ζωή 李. 😀", 96, "aaa aaa a. ?"},
 		{"abcdef", 3, "aaa…(+3)"},
 		{"", 10, ""},
 	} {

@@ -75,8 +75,8 @@ mapping, both binaries, `SHA256SUMS`); it needs a release key, see
 
 Every [release](https://github.com/alien2003/teams-bridge/releases) is built by GitHub Actions from
 the tagged commit and carries `tbd-linux-amd64`, `tbd-windows-amd64.exe`, `teams-bridge.apk`,
-`teams-bridge-mapping.txt.gz` (to read an obfuscated stack trace) and `SHA256SUMS`, each with a
-build provenance attestation. The names carry no version, so
+`teams-bridge-mapping.txt.gz` (to read an obfuscated stack trace) and `SHA256SUMS`, each of the
+five with a build provenance attestation. The names carry no version, so
 `https://github.com/alien2003/teams-bridge/releases/latest/download/<name>` always points at the
 newest release. Tags `vX.Y.Z-rc.N` are prereleases; what changed is in [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -87,11 +87,15 @@ with that project's service account. With your own Firebase project (see Prerequ
 <a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22io.github.alien2003.teamsbridge%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Falien2003%2Fteams-bridge%22%2C%22author%22%3A%22alien2003%22%2C%22name%22%3A%22Teams%20Bridge%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22%5Eteams-bridge%5B.%5Dapk%24%5C%22%2C%5C%22allowedSigningCertHashes%5C%22%3A%5C%2246%3AFC%3AC9%3A4A%3A53%3A66%3A85%3A09%3A66%3A12%3A4F%3A5C%3A30%3AA1%3AA4%3AC6%3A33%3AF0%3A3C%3AA8%3A2E%3A01%3A89%3AC7%3A48%3A63%3A19%3AE1%3ABA%3A16%3AFC%3A3E%5C%22%7D%22%7D"><img src="docs/assets/badge_obtainium.png" alt="Get it on Obtainium" width="161" height="48"></a>
 
 [Obtainium](https://github.com/ImranR98/Obtainium) keeps the app updated from these releases. The
-badge adds it with two settings, which Obtainium shows before it adds anything: *Filter links by
-regex* `^teams-bridge[.]apk$` (only the release APK) and *Expected signing certificate hashes* set
-to the certificate below, so Obtainium refuses an APK signed by any other key. Use Obtainium 1.7.4
-or newer: the check exists since 1.7.0 and works on Android 9 and 10 since 1.7.4. Prereleases are
-skipped unless you turn on *Include prereleases*. The badge goes through Obtainium's redirect page
+badge adds it with two settings: *Filter links by regex* `^teams-bridge[.]apk$` (only the release
+APK) and *Expected signing certificate hashes* set to the certificate below, so Obtainium refuses
+an APK signed by any other key. Obtainium asks before importing; its *Import app* dialog shows the
+settings only as JSON (expand *Raw JSON*: `apkFilterRegEx` and `allowedSigningCertHashes`), and
+after the import they appear under those two names in the app's settings in Obtainium. Use
+Obtainium 1.7.4 or newer: the check exists since 1.6.16 (1.6.17 stable) and works on Android 9 and
+10 only since 1.7.4. If a self-built debug APK is installed, uninstall it before the first install
+from Obtainium (see *Switching from a self-built debug APK* below). Prereleases are skipped unless
+you turn on *Include prereleases*. The badge goes through Obtainium's redirect page
 (`apps.obtainium.imranr.dev`, which runs its own analytics); to avoid it, add
 `https://github.com/alien2003/teams-bridge` in Obtainium and set the two settings by hand.
 `scripts/obtainium-link.sh` generates the link.
@@ -101,7 +105,7 @@ build-tools):
 
 ```sh
 sha256sum -c SHA256SUMS --ignore-missing
-for f in teams-bridge.apk tbd-linux-amd64; do   # any asset listed in SHA256SUMS
+for f in teams-bridge.apk tbd-linux-amd64; do   # any asset, SHA256SUMS too
   gh attestation verify "$f" -R alien2003/teams-bridge \
     --signer-workflow alien2003/teams-bridge/.github/workflows/release.yml
 done
@@ -120,10 +124,12 @@ On Windows, compare `Get-FileHash tbd-windows-amd64.exe` with `SHA256SUMS`, then
 warn. Rename it to `tbd.exe` (on Linux: `install -m755 tbd-linux-amd64 ~/.local/bin/tbd`).
 
 **Switching from a self-built debug APK to the release APK** takes one uninstall: Android never
-updates an app with one signed by a different key. Uninstall Teams Bridge, install
-`teams-bridge.apk`, then run `tbd pair` on the computer and scan the QR code it shows. Plain
-`tbd pair` shows the existing pairing (never use `--new` for this: it would unpair every phone), so
-the daemon keeps running unchanged. Uninstalling also clears the app's settings: choose **Open
+updates an app with one signed by a different key, and Obtainium warns that the release APK "is
+signed with a different certificate than the installed version" (do not choose to install anyway).
+Uninstall Teams Bridge, install `teams-bridge.apk` (by hand or from Obtainium), then run
+`tbd pair` on the computer and scan the QR code it shows. Plain `tbd pair` shows the existing
+pairing (never use `--new` for this: it would unpair every phone), so the daemon keeps running
+unchanged. Uninstalling also clears the app's settings: choose **Open
 Teams in**, allow notifications and exempt the app from battery optimisation again.
 
 ## Set up
@@ -217,8 +223,14 @@ Edge keeps some per-user bookkeeping in the registry no matter which profile it 
 * **"App not installed" or a package conflict when installing the release APK** over a debug build
   (or the other way round): the keys differ, uninstall first (see *Switching from a self-built debug
   APK* above).
-* **Obtainium reports a signing certificate mismatch:** the APK it downloaded is not signed by the
-  release key. Do not install it; open an issue (or a private report, if you suspect tampering).
+* **Obtainium shows "Signing certificate mismatch".** The dialog has two forms; read its text:
+  * "… is signed with a different certificate than the installed version": a debug or self-signed
+    build of Teams Bridge is installed. Do not choose to install anyway (Android would refuse the
+    update); uninstall the app first (see *Switching from a self-built debug APK* above), then
+    install from Obtainium.
+  * "… does not match the signing certificate hash you configured … The install has been
+    blocked": the downloaded APK is not signed by the release key. Do not install it; open an
+    issue (or a private report, if you suspect tampering).
 * **Reporting a bug:** paste only info-level log lines (they hold structure, counts and lengths, no
   names or message text; replace your user name in paths), never `--log-level debug` output,
   `config.toml`, the pairing code or a picture of the QR code; see the bug report form.
@@ -231,4 +243,6 @@ measured facts behind the design are in [`docs/DECISIONS.md`](docs/DECISIONS.md)
 
 ## License
 
-[WTFPL v2](LICENSE): do what you want with it.
+[WTFPL v2](LICENSE): do what you want with it. One exception: `docs/assets/badge_obtainium.png` is
+Obtainium's badge, under the [GPL-3.0](docs/assets/LICENSE-GPL-3.0.txt) (source and changes in
+[`docs/assets/README.md`](docs/assets/README.md)).

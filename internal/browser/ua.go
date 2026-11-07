@@ -7,9 +7,9 @@ import (
 	"github.com/chromedp/cdproto/emulation"
 )
 
-// Client-hint platform values as current Edge on Windows 11 sends them. Windows 11 (including this
-// host, build 26100 / 24H2) reports platformVersion "19.0.0" via User-Agent Client Hints, because
-// the UA-CH platform version maps the real Windows build to the 13.0.0+ range. Architecture "x86"
+// Client-hint platform values as current Edge on Windows 11 sends them. Windows 11 24H2 (build
+// 26100) reports platformVersion "19.0.0" via User-Agent Client Hints, because the UA-CH platform
+// version maps the real Windows build to the 13.0.0+ range. Architecture "x86"
 // with bitness "64" is how 64-bit Windows is described (x86 is the CPU family, not the word size).
 const (
 	platform        = "Windows"

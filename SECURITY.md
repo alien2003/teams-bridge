@@ -58,8 +58,9 @@ no relay and no channel back from the phone. The wire protocol is specified in
 
 * `teams-bridge.apk` is signed by the release key whose certificate SHA-256 is in
   [`android/release-cert.sha256`](android/release-cert.sha256) and in the README.
-* Every release asset is built by GitHub Actions from the tagged commit and has a build provenance
-  attestation (`gh attestation verify`); `SHA256SUMS` lists them all.
+* Every release asset, `SHA256SUMS` included, is built by GitHub Actions from the tagged commit
+  and has a build provenance attestation (`gh attestation verify`); `SHA256SUMS` lists the other
+  assets' checksums.
 * `tbd-windows-amd64.exe` has no Authenticode signature, so Windows SmartScreen may warn.
 * Actions are pinned by commit SHA; dependency updates come through Dependabot with a cooldown.
 

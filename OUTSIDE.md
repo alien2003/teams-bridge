@@ -33,6 +33,7 @@ scheduled task.
 | `~/.config/go/telemetry/local/*@go1.27.3-*.count` | noise | Pre-existing Go telemetry counters (born before our stamp). `mise install` runs `go version` without the project env, which bumps them; inside the project env Go writes to `.xdg/config/go/telemetry` | none (not ours) | noise |
 | `/tmp/hsperfdata_user` | noise | Pre-existing HotSpot perf-data dir (born before our stamp). Its mtime is touched by the `java -version` that `mise install` runs; our own JVMs run with `-XX:-UsePerfData` | none (not ours) | noise |
 | `/tmp/.tmp??????` | noise (mise) | `mise run` writes each task script to a transient Rust `tempfile` in the system temp dir (mise's own process does not see the project `TMPDIR`); it is gone when the task ends, but the `mise run check-outside` that is checking sees its own | none (transient) | noise |
+| `/tmp/systemd-private-*` | noise (system) | root-owned `PrivateTmp=` dirs that systemd creates whenever a system service restarts | none (not ours) | noise |
 | `/var/tmp/systemd-private-*` | noise (system) | the same, under `/var/tmp` | none (not ours) | noise |
 | `/run/user/1000/dconf/user` | ours (tmpfs) | dconf runtime file created by the first launch of `.tools/edge` (before the wrapper set `GSETTINGS_BACKEND=memory`). Not scanned by check-outside (`/run`), recorded from the review | `rm -f /run/user/$(id -u)/dconf/user && rmdir /run/user/$(id -u)/dconf 2>/dev/null; true` | run |
 | `systemd --user: at-spi-dbus-bus.service` | ours (process) | the accessibility bus, D-Bus-activated by the first launch of `.tools/edge` (before the wrapper set `NO_AT_BRIDGE=1`) | `systemctl --user stop at-spi-dbus-bus.service` | run |
@@ -75,9 +76,10 @@ scheduled task.
 | `%LOCALAPPDATA%\Microsoft\Edge\User Data` | noise (host) | The user's own Edge, running on the host, touches its profile folder; our browsers never use it (`--user-data-dir`) | none (not ours) | noise |
 | `%LOCALAPPDATA%\ConnectedDevicesPlatform*` | noise (host) | Windows' Connected Devices Platform service (Phone Link, nearby sharing) keeps its state here | none (not ours) | noise |
 | `%LOCALAPPDATA%\Microsoft\Terminal Server Client\Cache*` | noise (host) | Remote Desktop client (mstsc/msrdc) bitmap cache | none (not ours) | noise |
-| `%LOCALAPPDATA%\tbd*` | yours (production) | The daemon's real data dir on Windows: `config.toml`, the FCM service-account key `fcm.sa.json`, later the browser profile, `state.json`, `tbd.log`. Created on purpose for the real setup, not by tests | `Remove-Item -Recurse "$env:LOCALAPPDATA\tbd"` (only if you stop using tbd; it holds your pairing and the key) | keep |
+| `%LOCALAPPDATA%\tbd*` | yours (production) | The daemon's default data dir on Windows when tbd is set up for real: `config.toml`, the FCM service-account key `fcm.sa.json`, the browser profile, `state.json`, `tbd.log`. Created on purpose by a real setup, never by tests | `Remove-Item -Recurse "$env:LOCALAPPDATA\tbd"` (only if you stop using tbd; it holds your pairing and the key) | keep |
 | `%APPDATA%\Microsoft\Windows\Recent*` | noise (host) | Windows "recent items" | none (not ours) | noise |
 | `%LOCALAPPDATA%\Microsoft\Windows\WebCache*` | noise (host) | Windows' shared web cache (browser downloads) | none (not ours) | noise |
+| `%LOCALAPPDATA%\Programs\tbd*` | yours (production) | the installed `tbd.exe` of a real setup (the README's suggested location) | `Remove-Item -Recurse "$env:LOCALAPPDATA\Programs\tbd"` (after `tbd uninstall`) | keep |
 <!-- END outside-table -->
 
 ## apt packages

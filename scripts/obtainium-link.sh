@@ -4,8 +4,9 @@
 # or with --json the app config itself: Obtainium's export format, whose additionalSettings is a
 # JSON document inside a string. The settings pin what Obtainium installs to the release assets:
 #   apkFilterRegEx            only the asset teams-bridge.apk (D23: one unversioned APK per release);
-#   allowedSigningCertHashes  only an APK signed by android/release-cert.sha256 (Obtainium >= 1.7.0
-#                             refuses any other signer, with no override; uppercase hex pairs).
+#   allowedSigningCertHashes  only an APK signed by android/release-cert.sha256 (Obtainium >= 1.6.16
+#                             refuses any other signer, with no override, and on Android 9 and 10
+#                             only since 1.7.4; uppercase hex pairs).
 # scripts/obtainium-link_test.sh decodes the link again and checks that README.md carries it.
 # Needs only bash.
 set -euo pipefail

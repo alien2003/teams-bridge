@@ -19,8 +19,9 @@ The first public release.
   protocol v1 in `proto/PROTOCOL.md`.
 * A tap opens the right chat when Teams' chat list shows the message (Teams' own "Copy link" form);
   otherwise, and for channel posts, it opens Teams.
-* Alerts on the phone when the Teams session expires, when the browser keeps failing and when the
-  daemon stops; a heartbeat every 6 hours.
+* Alerts on the phone when the Teams session expires (it recognises Teams' sign-in prompts in
+  English, German, French, Spanish, Portuguese, Italian, Dutch, Polish, Ukrainian and Russian),
+  when the browser keeps failing and when the daemon stops; a heartbeat every 6 hours.
 * Commands: `login`, `pair` (QR code and 26-character code), `run`, `stop`, `start`, `status`,
   `test-push`, `install` / `uninstall` (systemd user unit or Windows scheduled task, `--dry-run`),
   `version`.
@@ -35,5 +36,5 @@ The first public release.
 ### Releases
 
 * Signed `teams-bridge.apk`, `tbd-linux-amd64`, `tbd-windows-amd64.exe`, the R8 mapping and
-  `SHA256SUMS`, built by GitHub Actions with build provenance attestations; updates through
+  `SHA256SUMS`, built by GitHub Actions with a build provenance attestation for each of them; updates through
   Obtainium with the release certificate pinned.

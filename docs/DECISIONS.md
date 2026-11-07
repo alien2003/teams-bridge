@@ -58,8 +58,8 @@ turned out to be wrong against reality, the entry says so and what was done inst
 
 ## D5 — Windows autostart: XML task, not `/sc onlogon` (brief corrected)
 
-* Measured on this host: `schtasks /create /sc onlogon … /rl limited` fails with *Access is denied*
-  from a non-elevated (medium integrity) process, even though the user is an administrator under UAC.
+* Measured: `schtasks /create /sc onlogon … /rl limited` fails with *Access is denied* from a
+  non-elevated (medium integrity) process, even for an administrator under UAC.
   A logon trigger for *any* user needs elevation.
 * `tbd install` therefore uses `schtasks /create /tn <name> /xml <file> /f` with a task definition
   whose `LogonTrigger` and `Principal` name the current user (`InteractiveToken`, `LeastPrivilege`).
@@ -227,7 +227,8 @@ Electron preload/IPC.
   expired + re-navigate (keep retrying); about:blank/chrome-error → re-navigate without alert (an
   outage is not an expiry); 3 evaluation errors in a row → restart the browser. The sign-in heuristics
   are conservative (Entra ID fields, account picker, "Sign in" buttons only in dialogs or sparse
-  pages; English and Russian) and were tested on 21 local pages in real Edge; **to verify against real
+  pages; English and Russian at first, since 2026-11 also German, French, Spanish, Portuguese,
+  Italian, Dutch, Polish and Ukrainian, compared without diacritics) and were tested on 21 local pages in real Edge; **to verify against real
   Teams** (what its own signed-out UI looks like).
 * (4) Browser lost: restart only. `browser_dead` comes from the FailureTracker after 3 failed runs in a
   row (launch/attach error, death within 3 min, or unresponsive); backoff 2 s doubling to 5 min, ±20 %.
@@ -375,8 +376,8 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
 
 ## D17 — Deep link: resolve the conversation from the page (measured on the real Teams)
 
-* **Measured, structure only** (masked shapes, names, counts; no text, no values), on this PC's
-  real Teams session (a personal account: the page lives on `https://teams.live.com`):
+* **Measured, structure only** (masked shapes, names, counts; no text, no values), on a real
+  Teams session (a personal account: the page lives on `https://teams.live.com`):
   * Teams v2 raises every message notification with `new Notification(title, {body, icon,
     timestamp, tag, requireInteraction, dir})` — **no `data`, an empty `tag`**. Nothing in the
     notification names the chat, so BRIEF §5's "look in options.data and tag" finds nothing.
@@ -597,7 +598,11 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   idempotent, refuses to overwrite a foreign hook): `scripts/prepush-check.sh` checks every commit
   being pushed (`git rev-list <remote>..<local>`, or everything not on the remote for a new ref) and
   every annotated tag: the stop list (as in `secrets-check`, including dashless GUIDs) over the
-  commit's whole tree and over the raw commit object (message, names, emails); the `secrets-check`
+  commit's whole tree (binary files too, `git grep -a`: a PNG text chunk or a SQLite file counts),
+  over every path in that tree, over the raw commit and tag objects (message, names, emails) and
+  over the names of the refs being pushed (every ref by hand); a path, tag or ref name that holds a
+  value is shown as an object id or a count, never as text. `secrets-check` likewise matches the
+  stop list against binary files and against every path; the `secrets-check`
   key/token patterns over the same (patterns now shared in `scripts/secrets-lib.sh`); author,
   committer and tagger emails only `alien2003@protonmail.ch`, `*@users.noreply.github.com` or
   `noreply@github.com`; their timezone offsets only `+0000` (**fail**, not warn: commits are made
@@ -607,6 +612,11 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   `secrets-check` with `TBD_NO_DENYLIST=1`.
 * Measured on 2026-11-07, before the history rewrite: `mise run prepush-check` fails on 41 commits,
   82 findings, all of them a non-UTC timezone offset; no stop-list, pattern or email finding.
+  Then every value this entry removed from HEAD (the project number, the host-software names of
+  the old OUTSIDE.md rows, the real region shards, a line of CLAUDE.md, and the host descriptions
+  removed after the review of D22–D24) was added to the stop list, so that `prepush-check` over
+  the rewritten history proves the scrub instead of checking only the offsets: it must be clean
+  over every ref before the first push.
 
 ## D22 — Continuous integration on GitHub Actions
 
@@ -660,8 +670,9 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   variables of a sourced file, Windows backslashes) and carry a `shellcheck disable` with the reason;
   `scripts/win/` changed only in comments.
 * **Dependabot** (`.github/dependabot.yml`): `github-actions`, `gomod` and `gradle` (`/android`,
-  no wrapper), weekly on Mondays, cooldown 7 days (30 for a major version), one grouped PR per
-  ecosystem (minor and patch for Go and Gradle), commit prefixes `ci` / `build`. Versions are
+  no wrapper), weekly on Mondays, cooldown 7 days (30 for a major version, actions included), minor
+  and patch updates as one grouped PR per ecosystem (the actions group takes majors too; Go and
+  Gradle majors come as PRs of their own), commit prefixes `ci` / `build`. Versions are
   recorded here, so a Dependabot PR is merged together with its DECISIONS line. `mise.toml`, the
   mise version in `ci.yml`, `buildToolsVersion` and the SDK packages of `android-sdk.sh` stay
   manual (`mise outdated` lists the mise tools).
@@ -682,7 +693,9 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   `workflow_call`; caches restored, never saved on a tag), `build` (the only job with secrets, in
   the environment `release`; contents: read, id-token and attestations: write; no caches at all, so
   nothing a pull request wrote reaches the signed build; `actions/attest-build-provenance` v4.2.2
-  over `SHA256SUMS`), `publish` (contents: write; `gh release create --verify-tag` with the
+  with `subject-path` over all five assets, `SHA256SUMS` included: its `subject-checksums` input
+  would attest only the files listed in `SHA256SUMS`, so `gh attestation verify SHA256SUMS` would
+  find nothing), `publish` (contents: write; `gh release create --verify-tag` with the
   downloaded assets after `sha256sum -c`). `actions/download-artifact` v8.0.2. The reusable call
   keeps the `./` form: zizmor 1.32 prefers `$/`, which actionlint 1.7.12 rejects (an inline
   `zizmor: ignore`; a reusable workflow is resolved from the commit at queue time, not from the
@@ -764,8 +777,10 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
 * **Obtainium, checked in its source** (`ImranR98/Obtainium`, release 1.7.4 of 2026-11-01):
   * `obtainium://app/<encodeURIComponent(JSON)>` imports one app config of Obtainium's export
     format: `id`, `url`, `author`, `name`, `preferredApkIndex`, and `additionalSettings` as a
-    **string holding JSON** (`App.fromJson` runs `jsonDecode` on it). Obtainium shows the config and
-    asks before adding it. The badge links to `https://apps.obtainium.imranr.dev/redirect?r=…`,
+    **string holding JSON** (`App.fromJson` runs `jsonDecode` on it). Obtainium asks before adding it: its
+    *Import app* dialog has no form fields, only a collapsed *Raw JSON* tile with the config; the
+    settings appear under their labels (*Filter links by regex*, *Expected signing certificate
+    hashes*) only in the app's settings after the import. The badge links to `https://apps.obtainium.imranr.dev/redirect?r=…`,
     whose page reads `r` with `URLSearchParams`, decodes it once more and re-encodes it, and offers
     "get Obtainium" when the app link does nothing; it carries that site's analytics, so the README
     also says how to add the app by hand.
@@ -775,8 +790,14 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
     certificate hashes separated by whitespace, commas or semicolons, normalised to uppercase
     colon pairs (the format of `android/release-cert.sha256`). With it set, Obtainium refuses an APK
     whose signer certificates are not all in the list, or whose certificates it cannot read, with
-    no override. Added in 2026-09 and first released in 1.7.0; the check is fixed for Android 9 and
-    10 (this app's minSdk 28) only in 1.7.4, which the README names. Obtainium compares the
+    no override. First released in 1.6.16 (2026-09-13; 1.6.17 is the stable release with it); the
+    check is fixed for Android 9 and 10 (this app's minSdk 28) only in 1.7.4, which the README
+    names. Separately, with *Warn about signing certificate changes* (`verifySigningCertHashes`,
+    on by default) Obtainium compares the downloaded APK with the installed app's certificate: over
+    a self-built debug APK the release APK passes the pin but gets the same "Signing certificate
+    mismatch" title as a warning ("signed with a different certificate than the installed
+    version", with *Install anyway*), so the README tells the two texts apart and sends the first
+    one to the uninstall. Obtainium compares the
     certificate history for a single-signer APK, so after a key rotation (v3) the list must hold
     every certificate of the lineage, and existing users must edit the setting by hand.
   * Prereleases are skipped unless *Include prereleases* is turned on (it is off by default), which
@@ -787,5 +808,7 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
     carries exactly this link, so a new certificate cannot leave a stale pin in the README.
   * The badge is Obtainium's `badge_obtainium.png` (GPL-3.0), trimmed of its transparent padding to
     564×168 and shown at 161×48 as Obtainium's badging guide suggests, hosted in `docs/assets/`
-    (source and licence in `docs/assets/README.md`; the guide asks not to hotlink it).
+    (source and licence in `docs/assets/README.md`; the guide asks not to hotlink it). It is the
+    one file not under the WTFPL: the README's License section names the exception, and the
+    GPL-3.0 text ships next to it as `docs/assets/LICENSE-GPL-3.0.txt`.
     Obtainium's own app directory wants ≥ 35 stars and a project ≥ 4 months old: not now.

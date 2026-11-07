@@ -35,7 +35,7 @@ func TestSendMessageFallsBackToSmallPadding(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t, nil)
 	e.srv.SetTopicDataLimit(2048)
-	m := longMessage(strings.Repeat("ж", 900))
+	m := longMessage(strings.Repeat("λ", 900))
 	_, sent, err := e.c.SendMessage(context.Background(), e.secret, m, nil)
 	if err != nil {
 		t.Fatalf("%v (%q)", err, e.srv.Rejections())
