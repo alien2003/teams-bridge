@@ -66,7 +66,7 @@ Everything is built with [mise](https://mise.jdx.dev/) and stays inside the repo
 
 ```sh
 mise trust && mise install
-mise run build      # dist/tbd (Linux, static), dist/tbd.exe (Windows), dist/teams-bridge-debug.apk
+mise run build      # dist/tbd (Linux, static), dist/tbd.exe (Windows), dist/tbd-darwin-{arm64,amd64} (macOS), dist/teams-bridge-debug.apk
 mise run test       # Go unit + E2E tests against a fake Teams in a real headless Edge, Android JVM tests
 ```
 
@@ -74,7 +74,7 @@ Without `android/app/google-services.json` the build drops in a placeholder: the
 does not work until you rebuild with your real file.
 
 `mise run release-build` builds what a release publishes into `dist/release/` (signed APK, R8
-mapping, both binaries, `SHA256SUMS`); it needs a release key, see
+mapping, the Linux, Windows and two macOS binaries, `SHA256SUMS`); it needs a release key, see
 [`docs/DECISIONS.md`](docs/DECISIONS.md) D23 and `scripts/build-release.sh`.
 
 ## Install from a release

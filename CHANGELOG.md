@@ -5,6 +5,15 @@ the format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). The
 version becomes the notes of its GitHub release (`scripts/release-notes.sh`); a version that is not
 tagged yet is marked "Unreleased" and gets its date when it is tagged.
 
+## [0.2.0] - Unreleased
+
+### Releases
+
+* `tbd-darwin-arm64` (macOS, Apple Silicon) and `tbd-darwin-amd64` (macOS, Intel), covered by
+  `SHA256SUMS` and the build provenance attestation; before publishing, the release workflow runs
+  each one natively on a GitHub macOS runner of its architecture. They are not signed with an Apple
+  Developer ID and not notarized.
+
 ## [0.1.0] - 2026-11-07
 
 The first public release.

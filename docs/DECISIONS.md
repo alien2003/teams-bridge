@@ -841,3 +841,38 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   `scripts/test-go.sh` runs at most two packages at a time, and the `--once` test accepts any
   delivered count (shutdown flushes the queue on purpose). No retries: a failure stays a failure.
 
+
+## D26 — macOS (darwin/arm64 and darwin/amd64)
+
+`tbd` runs on macOS 13 or newer, Apple Silicon and Intel, with the same commands as on Linux and
+Windows. There is no Mac in the development setup: every macOS behaviour is either a GOOS-parameterised
+pure function tested on Linux or exercised on GitHub's macOS runners. This entry grows with the port;
+the build and release part:
+
+* **Two separate binaries, cross-built on Linux:** `tbd-darwin-arm64` and `tbd-darwin-amd64`, with
+  `CGO_ENABLED=0 -trimpath -ldflags "-s -w"` like the others (`scripts/build.sh darwin`). No
+  universal binary: `lipo` does not exist on Linux, each download is half the size, and the
+  per-architecture checks stay simple. Measured on the dev PC: the Go linker writes an ad-hoc code
+  signature (`LC_CODE_SIGNATURE`) into the cross-built arm64 binary, `-s -w` included, which Apple
+  Silicon requires to run anything; the amd64 binary carries none (Intel Macs run unsigned code).
+  Nothing may modify a darwin binary after the link (strip, a second `-ldflags` pass), or the
+  signature breaks.
+* **Not signed with a Developer ID, not notarized:** both need a paid Apple Developer account and
+  are out of scope. Gatekeeper therefore refuses a copy downloaded with a browser (it carries
+  `com.apple.quarantine`) until the user clears the attribute; `curl` and `gh release download` set
+  none. The README says so.
+* **Checks:** `scripts/build-release.sh` verifies `GOOS`/`GOARCH` from `go version -m` and the
+  Mach-O header (magic `feedfacf`, CPU type arm64 or x86_64) for each binary, and `SHA256SUMS`
+  covers six files (APK, mapping, four binaries); provenance attests every asset. The release
+  workflow's `macos` job then runs each binary natively before publishing: `macos-latest` (arm64)
+  and `macos-15-intel` (x86_64), `uname -m` and `lipo -archs` equal to the binary's architecture
+  (so not under Rosetta), `codesign --verify` and `Signature=adhoc` on arm64, `tbd version` ending in
+  `darwin/<arch>)`, and `gh attestation verify` as a user would run it. `publish` waits for it.
+* **bash 3.2:** macOS ships bash 3.2, and the macOS jobs run `scripts/build.sh`, `test-go.sh` and
+  `version.sh` with whatever `bash` is first on the PATH. Those scripts avoid bash 4 constructs
+  (`;;&`, `mapfile`, associative arrays, `${x,,}`, `&>>`, …) and expand an array that may be empty
+  as `${a[@]+"${a[@]}"}` (bash < 4.4 calls an empty `"${a[@]}"` unbound under `set -u`).
+  `scripts/bash32_test.sh` (in `test-scripts`) greps for them; the real proof is the macOS job.
+  macOS also has no `sha256sum`: workflow steps there use `shasum -a 256`.
+* **Lint** vets all four targets and runs staticcheck for linux/amd64, windows/amd64 and
+  darwin/arm64 (darwin/amd64 has the same build tags).

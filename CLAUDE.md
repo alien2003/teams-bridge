@@ -3,7 +3,7 @@
 `tbd` is a Go daemon that keeps Microsoft Teams web open in a headless Edge driven over CDP, catches
 every notification the page raises and pushes it end-to-end encrypted, as an FCM topic data message,
 to the Android app **Teams Bridge** (`android/`). There is no server of ours and no reverse channel.
-`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D24) records what was decided and measured,
+`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D26) records what was decided and measured,
 and where an entry says "brief corrected", DECISIONS wins.
 
 ## Rules
@@ -193,14 +193,14 @@ From the repo root (`mise tasks` lists them); anything that is not a task runs a
 |---|---|
 | `mise trust && mise install && mise run hooks` | first time in a checkout (`hooks` installs the pre-push check, D21) |
 | `mise run prepush-check` | what the pre-push hook checks, over every ref: stop list over all trees (contents, binaries too, and paths), commit and tag objects and ref names, secret patterns, author/committer emails, `+0000` offsets |
-| `mise run build` | `dist/tbd` (static), `dist/tbd.exe`, `dist/teams-bridge-debug.apk` (fails at ≥ 6 MB) |
-| `mise run release-build` | `dist/release/`: signed release APK, R8 mapping, `tbd-linux-amd64`, `tbd-windows-amd64.exe`, `SHA256SUMS` (D23); clean tree only (`TBD_RELEASE_ALLOW_DIRTY=1` for a trial); the key from the environment or `.local/release/`; never print the password |
-| `mise run build-go` | Go binaries only; one target: `mise exec -- scripts/build.sh linux\|windows\|android` |
-| `mise run lint` | gofmt, then go vet + staticcheck for GOOS linux and windows; before every commit |
+| `mise run build` | `dist/tbd` (static), `dist/tbd.exe`, `dist/tbd-darwin-arm64` + `dist/tbd-darwin-amd64` (cross-built, D26), `dist/teams-bridge-debug.apk` (fails at ≥ 6 MB) |
+| `mise run release-build` | `dist/release/`: signed release APK, R8 mapping, `tbd-linux-amd64`, `tbd-windows-amd64.exe`, `tbd-darwin-arm64`, `tbd-darwin-amd64`, `SHA256SUMS` (D23, D26); clean tree only (`TBD_RELEASE_ALLOW_DIRTY=1` for a trial); the key from the environment or `.local/release/`; never print the password |
+| `mise run build-go` | Go binaries only; one target: `mise exec -- scripts/build.sh linux\|windows\|darwin\|android` |
+| `mise run lint` | gofmt, then go vet for linux/amd64, windows/amd64, darwin/arm64 and darwin/amd64, staticcheck for the first three; before every commit |
 | `mise run lint-ci` | actionlint + `zizmor --offline` over `.github/`, `bash -n` + shellcheck over every script; after touching `.github/` or `scripts/` |
 | `mise run test` | lint, `test-scripts`, `edge`, `build-go`, then `test-go` and the Android JVM tests with warnings as errors |
 | `mise run test-go` | builds `dist/tbd`, then `go test -count=1 ./...` with `TBD_REQUIRE_BROWSER=1` (log in `.tmp/go-test.log`); what CI runs on Linux and, natively, on Windows |
-| `mise run test-scripts` | table tests of `version.sh` and `release-notes.sh`, and `obtainium-link_test.sh` (the README's Obtainium link must equal `scripts/obtainium-link.sh`'s output; part of `test` and the CI lint job) |
+| `mise run test-scripts` | table tests of `version.sh` and `release-notes.sh`, `obtainium-link_test.sh` (the README's Obtainium link must equal `scripts/obtainium-link.sh`'s output) and `bash32_test.sh` (no bash 4 constructs in `build.sh`, `test-go.sh`, `version.sh`, which macOS runs with bash 3.2; an array that may be empty is written `${a[@]+"${a[@]}"}`); part of `test` and the CI lint job |
 | `mise exec -- go test -count=1 -run TestX ./internal/hook/` | inner loop on one package |
 | `mise exec -- scripts/test-android.sh` | Android JVM tests only |
 | `mise run test-win` | cross-compiles, runs every `<pkg>.test.exe` in the sandbox, ends with `check-outside-win`; takes minutes and flashes a login window |

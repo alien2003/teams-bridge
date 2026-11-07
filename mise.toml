@@ -41,19 +41,19 @@ ANDROID_USER_HOME = "{{config_root}}/.xdg/android"
 JAVA_TOOL_OPTIONS = "-XX:-UsePerfData -Djava.io.tmpdir={{config_root}}/.tmp"
 
 [tasks.build]
-description = "Build dist/tbd, dist/tbd.exe and dist/teams-bridge-debug.apk"
+description = "Build dist/tbd, dist/tbd.exe, dist/tbd-darwin-{arm64,amd64} and dist/teams-bridge-debug.apk"
 run = "scripts/build.sh"
 
 [tasks.build-go]
-description = "Build only the Go binaries"
+description = "Build only the Go binaries (Linux, Windows, macOS arm64 and amd64)"
 run = "scripts/build.sh go"
 
 [tasks.release-build]
-description = "Release assets into dist/release/: signed APK, R8 mapping, tbd for Linux and Windows, SHA256SUMS"
+description = "Release assets into dist/release/: signed APK, R8 mapping, tbd for Linux, Windows and macOS (arm64, amd64), SHA256SUMS"
 run = "scripts/build-release.sh"
 
 [tasks.lint]
-description = "gofmt, go vet, staticcheck"
+description = "gofmt, go vet, staticcheck (linux, windows and darwin targets)"
 run = "scripts/lint.sh"
 
 [tasks.lint-ci]
@@ -69,7 +69,7 @@ description = "build-go, then go test ./... against dist/tbd and a real browser 
 run = "scripts/test-go.sh"
 
 [tasks.test-scripts]
-description = "Table tests of the release scripts (version.sh, release-notes.sh, obtainium-link.sh)"
+description = "Table tests of the release scripts (version.sh, release-notes.sh, obtainium-link.sh) and the bash 3.2 guard"
 run = "scripts/test-scripts.sh"
 
 [tasks.test-win]

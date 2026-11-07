@@ -5,7 +5,10 @@
 #   teams-bridge-mapping.txt.gz  R8's mapping, to de-obfuscate a stack trace
 #   tbd-linux-amd64              static (CGO_ENABLED=0)
 #   tbd-windows-amd64.exe
-#   SHA256SUMS                   sha256sum of the four files above
+#   tbd-darwin-arm64             macOS, Apple Silicon (D26): ad-hoc signed by the Go linker, not
+#   tbd-darwin-amd64             notarized; macOS, Intel. Both cross-built here, checked on macOS
+#                                runners by the release workflow's macos job
+#   SHA256SUMS                   sha256sum of the six files above
 # Run through mise: mise run release-build.
 #
 # Inputs, all from the environment:
@@ -113,19 +116,33 @@ cp dist/teams-bridge.apk "$out/teams-bridge.apk"
 gzip -9 -n -c dist/teams-bridge-mapping.txt >"$out/teams-bridge-mapping.txt.gz"
 cp dist/tbd "$out/tbd-linux-amd64"
 cp dist/tbd.exe "$out/tbd-windows-amd64.exe"
+cp dist/tbd-darwin-arm64 "$out/tbd-darwin-arm64"
+cp dist/tbd-darwin-amd64 "$out/tbd-darwin-amd64"
 
-for b in "$out/tbd-linux-amd64" "$out/tbd-windows-amd64.exe"; do
+binaries=(tbd-linux-amd64:linux:amd64 tbd-windows-amd64.exe:windows:amd64 tbd-darwin-arm64:darwin:arm64
+  tbd-darwin-amd64:darwin:amd64)
+for entry in "${binaries[@]}"; do
+  IFS=: read -r name goos goarch <<<"$entry"
+  b="$out/$name"
   info="$(go version -m "$b")"
   command grep -qx $'\tbuild\tCGO_ENABLED=0' <<<"$info" || die "$b: not built with CGO_ENABLED=0"
-  command grep -qx $'\tbuild\tGOARCH=amd64' <<<"$info" || die "$b: not amd64"
+  command grep -qx $'\tbuild\tGOOS='"$goos" <<<"$info" || die "$b: not $goos"
+  command grep -qx $'\tbuild\tGOARCH='"$goarch" <<<"$info" || die "$b: not $goarch"
   # -trimpath leaves -ldflags out of the build info: look for the stamped string itself.
   command grep -qaF "$TBD_VERSION" "$b" || die "$b: version is not $TBD_VERSION"
+  # The first 8 bytes of a Mach-O 64 file: magic feedfacf, then the CPU type (little endian).
+  magic="$(od -An -tx1 -N8 "$b" | tr -d ' \n')"
+  case "$goos/$goarch" in
+    darwin/arm64) [[ "$magic" == cffaedfe0c000001 ]] || die "$b: not a Mach-O arm64 file" ;;
+    darwin/amd64) [[ "$magic" == cffaedfe07000001 ]] || die "$b: not a Mach-O x86_64 file" ;;
+  esac
 done
 "$out/tbd-linux-amd64" version | command grep -qF "tbd $TBD_VERSION " || die "tbd-linux-amd64 version is not $TBD_VERSION"
 
 (
   cd "$out"
-  sha256sum teams-bridge.apk teams-bridge-mapping.txt.gz tbd-linux-amd64 tbd-windows-amd64.exe >SHA256SUMS
+  sha256sum teams-bridge.apk teams-bridge-mapping.txt.gz tbd-linux-amd64 tbd-windows-amd64.exe \
+    tbd-darwin-arm64 tbd-darwin-amd64 >SHA256SUMS
   sha256sum --quiet -c SHA256SUMS
 )
 echo "build-release: $out ($TBD_VERSION)"

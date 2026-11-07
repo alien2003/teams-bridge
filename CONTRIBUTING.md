@@ -23,14 +23,14 @@ mise run edge                                  # a headless Edge for the tests, 
 
 | Command | What | When |
 |---|---|---|
-| `mise run lint` | gofmt, go vet and staticcheck for Linux and Windows | before every commit |
+| `mise run lint` | gofmt, go vet and staticcheck for Linux, Windows and macOS | before every commit |
 | `mise run lint-ci` | actionlint and zizmor over `.github/`, `bash -n` and shellcheck over every script | after touching `.github/` or `scripts/` |
 | `mise run test` | lint, the script tests, the Go unit and E2E tests in a real headless Edge, the Android JVM tests | before every pull request |
 | `mise run test-go` | only the Go tests (`TBD_REQUIRE_BROWSER=1`, so a missing browser fails instead of skipping) | inner loop |
 | `mise exec -- go test -count=1 -run TestX ./internal/hook/` | one package | inner loop (set `TBD_REQUIRE_BROWSER=1` too) |
-| `mise run test-scripts` | table tests of `version.sh`, `release-notes.sh`, `obtainium-link.sh` | after touching them |
+| `mise run test-scripts` | table tests of `version.sh`, `release-notes.sh`, `obtainium-link.sh`; the bash 3.2 guard over the scripts macOS runs | after touching them |
 | `mise run secrets-check` | key and token patterns, forbidden files, the stop list (below) | before every commit |
-| `mise run build` | `dist/tbd`, `dist/tbd.exe`, `dist/teams-bridge-debug.apk` | to try a change |
+| `mise run build` | `dist/tbd`, `dist/tbd.exe`, `dist/tbd-darwin-arm64`, `dist/tbd-darwin-amd64`, `dist/teams-bridge-debug.apk` | to try a change |
 
 CI (`.github/workflows/ci.yml`) runs lint, lint-ci, the script tests, `secrets-check` without a stop
 list, the Go tests on Linux and natively on Windows against the runners' Edge, and the Android tests

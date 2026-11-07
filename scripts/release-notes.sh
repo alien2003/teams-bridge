@@ -60,6 +60,8 @@ $notes
 | \`teams-bridge.apk\` | Android app, signed by the release key |
 | \`tbd-linux-amd64\` | daemon for Linux and WSL (static) |
 | \`tbd-windows-amd64.exe\` | daemon for Windows |
+| \`tbd-darwin-arm64\` | daemon for macOS, Apple Silicon (unsigned, not notarized: see README) |
+| \`tbd-darwin-amd64\` | daemon for macOS, Intel (unsigned, not notarized: see README) |
 | \`teams-bridge-mapping.txt.gz\` | R8 mapping, to read an obfuscated stack trace |
 | \`SHA256SUMS\` | SHA-256 of the files above |
 
@@ -67,6 +69,7 @@ $notes
 
 \`\`\`sh
 sha256sum -c SHA256SUMS --ignore-missing
+grep tbd-darwin-arm64 SHA256SUMS | shasum -a 256 -c -   # macOS (no sha256sum); Intel: tbd-darwin-amd64
 gh attestation verify teams-bridge.apk -R $repo --signer-workflow $repo/.github/workflows/release.yml
 apksigner verify --print-certs teams-bridge.apk   # certificate SHA-256 below
 \`\`\`

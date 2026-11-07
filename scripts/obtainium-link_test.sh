@@ -35,7 +35,7 @@ has "certificate pin" "\\\"allowedSigningCertHashes\\\":\\\"$cert\\\"}\"}"
 filter='^teams-bridge[.]apk$'
 if [[ teams-bridge.apk =~ $filter ]]; then ok; else no "filter takes teams-bridge.apk"; fi
 for a in teams-bridge-debug.apk teams-bridge.apk.sha256 teams-bridge-mapping.txt.gz SHA256SUMS \
-  tbd-linux-amd64 tbd-windows-amd64.exe xteams-bridge.apk teams-bridgeXapk; do
+  tbd-linux-amd64 tbd-windows-amd64.exe tbd-darwin-arm64 tbd-darwin-amd64 xteams-bridge.apk teams-bridgeXapk; do
   if [[ "$a" =~ $filter ]]; then no "filter skips $a"; else ok; fi
 done
 
