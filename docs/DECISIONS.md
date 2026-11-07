@@ -835,4 +835,9 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   feature flags, modem state, the console auth token) and the emulator writes crash reports to
   `/tmp/android-$USER`; run them with `HOME`, `ANDROID_EMULATOR_HOME`, `ANDROID_USER_HOME`,
   `ANDROID_TMP` and `TMPDIR` pointed into the repository (`.xdg/emu-home`, `.tmp/android`).
+* **Load on the runners:** `go test ./...` runs packages in parallel and several of them start Edge
+  at the same time; on a 4-vCPU runner a cold start then exceeded the 30 s DevTools timeout, and a
+  `--once` run delivered a second, already queued notification. On GitHub Actions
+  `scripts/test-go.sh` runs at most two packages at a time, and the `--once` test accepts any
+  delivered count (shutdown flushes the queue on purpose). No retries: a failure stays a failure.
 

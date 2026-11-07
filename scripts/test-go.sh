@@ -17,4 +17,8 @@ else
   exe="$ROOT/dist/tbd"
 fi
 export TBD_REQUIRE_BROWSER=1 TBD_EXE="$exe"
-go test -count=1 -timeout 15m "$@" ./... 2>&1 | tee .tmp/go-test.log
+# On CI runners (4 vCPUs) several packages start their own browsers at once, and a cold Edge start
+# then exceeded the 30 s DevTools timeout (D25): run at most two packages at a time there.
+par=()
+[[ "${GITHUB_ACTIONS:-}" == true ]] && par=(-p 2)
+go test -count=1 -timeout 15m "${par[@]}" "$@" ./... 2>&1 | tee .tmp/go-test.log
