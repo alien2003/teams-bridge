@@ -148,6 +148,25 @@ jobs:
         run: scripts/ci-mac-footprint.sh before
       - name: go test
         run: mise exec -- bash scripts/test-go.sh
+      # The binary go test just built (scripts/build.sh darwin, the same build as the release's) runs
+      # natively: its architecture is the runner's, the Go linker's ad-hoc signature is intact on
+      # Apple Silicon, and `version` names darwin/<arch>. The release workflow repeats this on the
+      # published assets (D26).
+      - name: Run the darwin binary (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          case "$(uname -m)" in arm64) goarch=arm64 ;; x86_64) goarch=amd64 ;; *) echo "::error::unknown arch"; exit 1 ;; esac
+          bin="dist/tbd-darwin-$goarch"
+          archs="$(lipo -archs "$bin")"
+          echo "uname -m: $(uname -m), lipo -archs: $archs"
+          if [ "$archs" != "$(uname -m)" ]; then echo "::error::$bin is $archs"; exit 1; fi
+          if [ "$goarch" = arm64 ]; then codesign --verify --verbose "$bin"; fi
+          out="$("./$bin" version)"
+          echo "$out"
+          case "$out" in
+            "tbd "*" (protocol v"*", darwin/$goarch)") ;;
+            *) echo "::error::unexpected version line"; exit 1 ;;
+          esac
       # What the tests left under ~/Library, in the keychain, in launchd and as processes: paths
       # and counts in the step summary; fails on what must not stay (scripts/ci-mac-footprint.sh).
       - name: Footprint (macOS)
