@@ -34,6 +34,10 @@ func TestResolveHome(t *testing.T) {
 		{"xdg", "", "linux", map[string]string{"XDG_DATA_HOME": root("xdg")}, root("xdg", "tbd")},
 		{"relative xdg is ignored", "", "linux", map[string]string{"XDG_DATA_HOME": "rel"}, root("home", "u", ".local", "share", "tbd")},
 		{"windows", "", "windows", map[string]string{"LOCALAPPDATA": root("Users", "u", "AppData", "Local")}, root("Users", "u", "AppData", "Local", "tbd")},
+		{"darwin default", "", "darwin", nil, root("home", "u", "Library", "Application Support", "tbd")},
+		{"darwin ignores xdg", "", "darwin", map[string]string{"XDG_DATA_HOME": root("xdg")}, root("home", "u", "Library", "Application Support", "tbd")},
+		{"darwin env", "", "darwin", map[string]string{"TBD_HOME": root("x", "env"), "XDG_DATA_HOME": root("xdg")}, root("x", "env")},
+		{"darwin flag wins", root("x", "flag"), "darwin", map[string]string{"TBD_HOME": root("x", "env")}, root("x", "flag")},
 	}
 	for _, tc := range cases {
 		got, err := resolveHome(tc.flag, env(tc.env), tc.goos, home)
@@ -43,6 +47,10 @@ func TestResolveHome(t *testing.T) {
 	}
 	if _, err := resolveHome("", env(nil), "windows", home); err == nil {
 		t.Error("windows without LOCALAPPDATA must fail")
+	}
+	noHome := func() (string, error) { return "", errors.New("$HOME is not defined") }
+	if _, err := resolveHome("", env(nil), "darwin", noHome); err == nil || !strings.Contains(err.Error(), "--home") {
+		t.Errorf("darwin without a home directory must fail and suggest --home: %v", err)
 	}
 }
 

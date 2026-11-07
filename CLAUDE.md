@@ -170,7 +170,7 @@ phone: MessagingService → decrypt + replay filter → Notifier → tap → Ope
 | `internal/session/` | Detector, Debouncer, `probe.js`, FailureTracker/Backoff, heartbeat |
 | `internal/proto/` | frozen v1: secret/code, HKDF key + topic, padding, AEAD, Message, replay filter; `cmd/gen-vectors` |
 | `internal/fcm/` | HTTP v1 client, JWT, retries, typed errors, small-padding fallback; `fcmtest/` = independent strict mock |
-| `internal/config/` | `config.toml` (unknown keys are errors), `TBD_HOME` resolution, `DetectBrowser`, `BrowserVersion` |
+| `internal/config/` | `config.toml` (unknown keys are errors), `TBD_HOME` resolution (macOS: `~/Library/Application Support/tbd`), `DetectBrowser` (macOS: `/Applications` and `~/Applications` bundles, `.app` paths), `BrowserVersion` (macOS: `Info.plist`); `mac_test.go` tests the darwin paths on every OS, `*_darwin_test.go` runs only on the macOS runners |
 | `internal/service/` | systemd user unit, Windows XML scheduled task, `--dry-run`, `tbd-test-*` round trips |
 | `test/faketeams/` | fake Teams (`site/`) + httptest server; browser-level E2E |
 | `android/` | Gradle project, app `io.github.alien2003.teamsbridge`; `…/proto/` = Kotlin twin of `internal/proto`; no Gradle wrapper (mise's `gradle`) |

@@ -65,9 +65,9 @@ type Config struct {
 	// ReportHidden makes the page believe it is in the background (document.hidden, hasFocus),
 	// which is what makes Teams raise notifications. Default true.
 	ReportHidden *bool `toml:"report_hidden,omitempty"`
-	// ImplicitSignin lets Edge sign the daemon's new profile in to the Windows account (off by
-	// default). Turn it on only where Conditional Access needs Edge's OS-account SSO (an
-	// Entra-joined Windows PC).
+	// ImplicitSignin lets Edge sign the daemon's new profile in to the OS account (off by
+	// default). Turn it on only where Conditional Access needs Edge's OS-account SSO (for example
+	// an Entra-joined Windows PC).
 	ImplicitSignin bool `toml:"implicit_signin,omitempty"`
 	// FCMEndpoint overrides https://fcm.googleapis.com (tests).
 	FCMEndpoint string `toml:"fcm_endpoint,omitempty"`
@@ -270,8 +270,10 @@ func Save(home string, c *Config) error {
 	return os.Rename(tmp.Name(), Path(home))
 }
 
-// ResolveHome picks the data directory: --home, then $TBD_HOME, then the OS default
-// (%LOCALAPPDATA%\tbd on Windows, $XDG_DATA_HOME/tbd or ~/.local/share/tbd elsewhere).
+// ResolveHome picks the data directory: --home, then $TBD_HOME, then the OS default:
+// %LOCALAPPDATA%\tbd on Windows, ~/Library/Application Support/tbd on macOS (XDG_DATA_HOME is
+// ignored there, as Go's os.UserConfigDir does), $XDG_DATA_HOME/tbd or ~/.local/share/tbd on Linux
+// and other Unix systems.
 func ResolveHome(flagValue string) (string, error) {
 	return resolveHome(flagValue, os.Getenv, runtime.GOOS, os.UserHomeDir)
 }
@@ -290,12 +292,17 @@ func resolveHome(flagValue string, getenv func(string) string, goos string, user
 		}
 		return "", errors.New("config: LOCALAPPDATA is not set; use --home")
 	}
-	if v := getenv("XDG_DATA_HOME"); v != "" && filepath.IsAbs(v) {
-		return filepath.Join(v, "tbd"), nil
+	if goos != "darwin" {
+		if v := getenv("XDG_DATA_HOME"); v != "" && filepath.IsAbs(v) {
+			return filepath.Join(v, "tbd"), nil
+		}
 	}
 	h, err := userHome()
 	if err != nil {
 		return "", fmt.Errorf("config: %w; use --home", err)
+	}
+	if goos == "darwin" {
+		return filepath.Join(h, "Library", "Application Support", "tbd"), nil
 	}
 	return filepath.Join(h, ".local", "share", "tbd"), nil
 }

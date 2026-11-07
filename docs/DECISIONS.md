@@ -876,3 +876,30 @@ the build and release part:
   macOS also has no `sha256sum`: workflow steps there use `shasum -a 256`.
 * **Lint** vets all four targets and runs staticcheck for linux/amd64, windows/amd64 and
   darwin/arm64 (darwin/amd64 has the same build tags).
+
+Configuration (`internal/config`):
+
+* **Data directory:** `~/Library/Application Support/tbd` by default, Apple's place for per-user
+  application data and the counterpart of `%LOCALAPPDATA%\tbd` on Windows; `--home` and
+  `TBD_HOME` still win, and `XDG_DATA_HOME` is ignored on macOS (as on Windows, and as Go's
+  `os.UserConfigDir` does there). Rejected: `~/.local/share/tbd`, foreign on a Mac and hidden from
+  Finder users. The space in the path is safe: arguments are passed as separate argv elements and
+  printed commands are shell-quoted. The one catch, Chromium mapping a profile under
+  `Application Support` to a disk cache under `~/Library/Caches/<same path>`, is handled by the
+  browser switches (`--disk-cache-dir`, below).
+* **Browser detection:** config `browser` → `TBD_BROWSER` → source `macos-standard`: Microsoft
+  Edge, Chromium, Google Chrome (the Linux priority), each looked for as
+  `/Applications/<X>.app/Contents/MacOS/<X>` and then under `~/Applications` → the Linux names on
+  `PATH` → `.tools/edge` (dev). Edge's installer puts it in `/Applications`; Chrome and Chromium can
+  be dragged to `~/Applications`. Beta, Dev and Canary are not auto-detected (set `browser`). A
+  `.app` directory in `browser` or `TBD_BROWSER` stands for `Contents/MacOS/<CFBundleExecutable>`
+  (from its `Info.plist`; else the bundle's name without `.app`), so
+  `browser = "/Applications/Microsoft Edge.app"` works; a regular file is always used as is.
+* **Browser version:** read from `CFBundleShortVersionString` in the bundle's `Contents/Info.plist`
+  (Chromium writes the four-part version there, as XML), which starts no process: no Gatekeeper
+  first-launch scan, no framework load, no keychain access, no 15 s timeout. A binary property list
+  (`bplist00`), a missing key, anything that is not exactly `a.b.c.d`, or a browser outside a bundle
+  falls back to `--version`, which also works on a Mac. Only the top-level dictionary counts
+  (Info.plist nests dictionaries with keys of the same names). Unit tests on every OS cover the
+  order, the bundle resolution and the plist fixtures; a darwin-only test on the runners checks the
+  real bundle, `browser = "<bundle>.app"` and that `Info.plist` agrees with `--version`.

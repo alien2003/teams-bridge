@@ -44,8 +44,9 @@ Commands:
   uninstall [--dry-run] remove that again
   version               print the version
 
-The data directory is --home, else $TBD_HOME, else %LOCALAPPDATA%\tbd (Windows) or
-~/.local/share/tbd (Linux). config.toml lives inside it.
+The data directory is --home, else $TBD_HOME, else %LOCALAPPDATA%\tbd (Windows),
+~/Library/Application Support/tbd (macOS) or ~/.local/share/tbd (Linux). config.toml lives
+inside it.
 
 Signing in again (or pair --new) while the daemon runs: tbd stop, tbd login, tbd start.
 `
