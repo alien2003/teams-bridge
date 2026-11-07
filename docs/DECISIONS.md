@@ -502,3 +502,71 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   (measured). The browser keeps the caller's `TMPDIR` (the repo's `.tmp/` under mise; `/tmp`,
   cleaned by the OS, in production).
 
+
+## D20 — `tbd stop` / `tbd start`; the daemon follows the task's console host (Windows)
+
+* **Measured** (2026-11-07, Windows host): a scheduled task whose action is
+  `C:\Windows\System32\conhost.exe --headless C:\Windows\System32\PING.EXE -t 127.0.0.1`, after
+  `schtasks /run` and `schtasks /end`, still had `PING.EXE` running. `schtasks /end` terminates the
+  action's process, conhost, and nothing below it. With the D5 action (`conhost.exe --headless
+  tbd.exe run …`) that left tbd.exe running after "end the task", and the next `tbd login` failed on
+  `tbd.lock`. The old install note ("stop: schtasks /end /tn tbd") and README were wrong. Also
+  measured: a Windows process started from WSL has `wsl.exe` as its parent, not conhost.
+* **`tbd stop [--timeout 20s]`** stops whatever holds `<home>/tbd.lock` (the daemon, or a
+  `tbd login`), for `--home`/`TBD_HOME` like every command; no holder → "not running", exit 0. It
+  needs no valid `config.toml`.
+  1. *Who holds the lock.* The PID comes from the lock file, which only a holder writes, but `tbd
+     status` and `tbd stop` take the lock for a moment to test it, and then the file still names the
+     previous holder (maybe a reused PID). So the PID counts only when two try-locks 150 ms apart
+     both fail with the same PID in the file, and on Linux `/proc/locks` must list a FLOCK on the
+     file's inode by that PID (when it lists any; the device column is ignored, it differs from
+     `st_dev` on btrfs/overlayfs). Otherwise `tbd stop` refuses rather than guess.
+  2. *Graceful = the SIGTERM path* (D13: `daemon_stopping`, browser closed, lock released). Unix:
+     SIGTERM through a pidfd (`os.FindProcess`), sent only after re-checking the holder with the
+     process pinned. Linux under systemd (the holder is `tbd.service`'s `MainPID`):
+     `systemctl --user stop --no-block tbd.service`, because with `Restart=always` systemd would
+     restart a daemon that merely exits. Windows: a named event, below.
+  3. Wait until the lock is released; only after the timeout end it forcibly and say so (no
+     `daemon_stopping` then). Unix: SIGKILL (pidfd, re-checked). Windows: open the process, check its
+     image is `tbd.exe` (a renamed binary is not forced), re-check the lock holder, then
+     `TerminateProcess` on that same handle (an open handle pins the PID), exit code 0 so Task
+     Scheduler does not count a failure. The job object (D14) takes Edge with it.
+* **Windows stop mechanism: a named event** `Local\tbd-stop-<16 hex>`, created (manual reset) by
+  whoever takes the lock and waited on by `tbd run` and `tbd login`; `tbd stop` opens and sets it.
+  Alternatives rejected: Windows has no SIGTERM; `GenerateConsoleCtrlEvent` reaches only processes on
+  the caller's own console, and the task's daemon sits on a hidden pseudo console of its own; there
+  is no window for `WM_CLOSE`; a pipe or port needs a protocol and an endpoint to secure. A `Local\`
+  event is reachable from every process of the user in the same logon session (the task runs with
+  `InteractiveToken` in the desktop session) and its default DACL admits only that user and SYSTEM.
+  The name hashes the lock file's **volume serial number and file index**, not the path string, so
+  every spelling of the home (case, 8.3 names, junctions, `subst`) reaches the same daemon, and the
+  name shows no path or user name. If the event already exists when a daemon starts (a stopper of
+  the previous holder still has it open), it is reset. A holder without the event (a tbd from before
+  this version, or another session, e.g. SSH) gets the timeout and then the forced path.
+* **Windows parent watch.** `tbd run` looks up its parent PID (process snapshot) first thing, opens
+  it with `SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION` (from then on its PID cannot be reused)
+  and watches it only when its image is `conhost.exe` **and** it was created no later than tbd (a
+  younger process under that PID reused it). When that conhost ends — `schtasks /end` — tbd stops
+  the SIGTERM way. Any other parent (cmd/PowerShell/Windows Terminal, Explorer, `wsl.exe`, a test
+  harness) is not watched. Info lines: "watching the console host …" and "console host exited;
+  stopping" (image base name and PID only). `schtasks /end /tn tbd` therefore works again, and
+  `tbd stop` is the documented way.
+* **`tbd start`** runs `schtasks /run /tn tbd` or `systemctl --user start tbd.service` (names from
+  `internal/service`), after checking the service exists (`schtasks /query` exit status,
+  `systemctl --user is-enabled` ≠ `not-found`; else "run `tbd install`"), and waits up to 20 s for a
+  daemon to take the lock. With the lock already held it only says "already running".
+* **Messages.** Every refusal on a held lock (`run`, `login`, …) reads "tbd is already running for
+  this data directory (pid N): run `tbd stop`, then this command again (`tbd start` starts the daemon
+  again)"; `pair --new` and the `session_expired` alert body name `tbd stop` / `tbd start` too; the
+  install notes say "stop: tbd stop; start again: tbd start".
+* **Tests.** Unit: holder detection (a momentary probe is no holder, `/proc/locks` parsing), event
+  naming (Windows: the same event for another spelling of the path, a different one per home),
+  parent-watch decisions, Stop's phases with fakes, Start against a fake service manager. Real
+  mechanisms: a re-executed test binary holding the lock (SIGTERM/event obeyed → graceful; ignored →
+  SIGKILL on Unix, and on Windows *refused*, since it is not tbd.exe); `Stop` against the in-process
+  daemon (E2E, `daemon_stopping`); `tbd stop` against a real `tbd run` with faketeams + fcmtest;
+  and, on Windows, a `tbd-test-*` scheduled task with the real install's action, `schtasks /run`,
+  then `schtasks /end`: tbd.exe logs the watch, stops gracefully and pushes `daemon_stopping`.
+  (Measured: `conhost.exe --headless <client>` started directly from WSL or a test, i.e. with
+  standard handles, does not run the client — it acts as a ConPTY server on those handles — so
+  only Task Scheduler reproduces production.)

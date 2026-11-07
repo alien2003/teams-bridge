@@ -326,7 +326,9 @@ func windowsInstall(s Spec, env Env) (Plan, error) {
 		p.Commands = append(p.Commands, schtasks("/run", "/tn", s.Name))
 		note += "; install also starts it now"
 	}
-	note += fmt.Sprintf(".\nStatus: schtasks /query /tn %s /v /fo list; stop: schtasks /end /tn %s", s.Name, s.Name)
+	// Not `schtasks /end`: it ends conhost.exe only, and tbd.exe (before it watched its console
+	// host) kept running (DECISIONS D20).
+	note += fmt.Sprintf(".\nStatus: schtasks /query /tn %s /v /fo list; stop: tbd stop; start again: tbd start", s.Name)
 	p.Notes = []string{note}
 	return p, nil
 }
@@ -336,6 +338,6 @@ func windowsUninstall(s Spec) Plan {
 	if f := TaskFile(s); f != "" {
 		p.RemoveFiles = []string{f}
 	}
-	p.Notes = []string{"Deleting the task does not stop a tbd.exe that is already running; it ends at logoff, or end it in Task Manager."}
+	p.Notes = []string{"Deleting the task does not stop a tbd.exe that is already running: stop it with `tbd stop`."}
 	return p
 }

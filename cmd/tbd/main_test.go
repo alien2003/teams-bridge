@@ -180,11 +180,57 @@ func TestPairNewRefusedWhileDaemonRuns(t *testing.T) {
 	}
 	defer lock.Release()
 	code, _, e := runCLI(t, "", "--home", home, "pair", "--no-ping", "--new")
-	if code == 0 || !strings.Contains(e, "is running") {
+	if code == 0 || !strings.Contains(e, "is running") || !strings.Contains(e, "run `tbd stop`") {
 		t.Fatalf("pair --new while the daemon runs: %d %q", code, e)
 	}
 	after, _, _ := config.Load(home)
 	if after.Secret != before.Secret {
 		t.Fatal("secret changed although refused")
+	}
+}
+
+func TestStopWithoutDaemon(t *testing.T) {
+	home := t.TempDir()
+	if code, out, e := runCLI(t, "", "stop", "--home", home); code != 0 || !strings.Contains(out, "not running") {
+		t.Fatalf("stop: %d %q %q", code, out, e)
+	}
+	t.Setenv("TBD_HOME", home)
+	if code, out, e := runCLI(t, "", "stop", "--timeout", "5s"); code != 0 || !strings.Contains(out, "not running") || !strings.Contains(out, home) {
+		t.Fatalf("stop with TBD_HOME: %d %q %q", code, out, e)
+	}
+	if code, _, e := runCLI(t, "", "stop", "--timeout", "0s"); code != 2 || !strings.Contains(e, "--timeout") {
+		t.Fatalf("stop --timeout 0: %d %q", code, e)
+	}
+}
+
+func TestStartWhileRunning(t *testing.T) {
+	home := t.TempDir()
+	lock, err := daemon.AcquireLock(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	if code, out, e := runCLI(t, "", "--home", home, "start"); code != 0 || !strings.Contains(out, "already running") {
+		t.Fatalf("start: %d %q %q", code, out, e)
+	}
+}
+
+// Every command that needs the data directory names the fix when the daemon holds it.
+func TestLockedCommandsNameTheFix(t *testing.T) {
+	srv := fcmtest.NewServer(t, fcmtest.WithSecret(proto.VectorSecret))
+	home := t.TempDir()
+	cfg := config.Default()
+	cfg.Secret = proto.VectorSecret.Code()
+	srv.SetupHome(home, cfg)
+	lock, err := daemon.AcquireLock(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	for _, args := range [][]string{{"login", "--timeout", "5s"}, {"run", "--timeout", "5s"}, {"pair", "--new", "--no-ping"}} {
+		code, _, e := runCLI(t, "", append([]string{"--home", home}, args...)...)
+		if code != 1 || !strings.Contains(e, "run `tbd stop`") || !strings.Contains(e, "`tbd start`") || !strings.Contains(e, "pid ") {
+			t.Errorf("%v: %d %q", args, code, e)
+		}
 	}
 }

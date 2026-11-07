@@ -204,3 +204,52 @@ func UninstallPlan(spec Spec, goos string, env Env) (Plan, error) {
 	}
 	return Plan{}, fmt.Errorf("service: uninstall is supported on linux and windows, not %s", goos)
 }
+
+// ErrNotInstalled means the autostart definition does not exist (no `tbd install` yet).
+var ErrNotInstalled = errors.New("service: not installed")
+
+// StartCommand is the command that starts the installed daemon now: `schtasks /run /tn <name>` on
+// Windows, `systemctl --user start <name>.service` on Linux (WSL included).
+func StartCommand(name, goos string) ([]string, error) {
+	s, err := Spec{Name: name}.normalize(goos, false)
+	if err != nil {
+		return nil, err
+	}
+	switch goos {
+	case "linux":
+		return systemctl("start", s.Name+".service"), nil
+	case "windows":
+		return schtasks("/run", "/tn", s.Name), nil
+	}
+	return nil, fmt.Errorf("service: start is supported on linux and windows, not %s", goos)
+}
+
+// CheckInstalled returns nil when the autostart definition named name exists on goos, an error
+// wrapping ErrNotInstalled when it does not, and another error when that cannot be told.
+func CheckInstalled(ctx context.Context, r Runner, name, goos string) error {
+	s, err := Spec{Name: name}.normalize(goos, false)
+	if err != nil {
+		return err
+	}
+	if r == nil {
+		r = ExecRunner{}
+	}
+	switch goos {
+	case "linux":
+		state, err := UnitState(ctx, r, s.Name)
+		if err != nil {
+			return err
+		}
+		if state == "not-found" {
+			return fmt.Errorf("%w: systemctl --user knows no %s.service", ErrNotInstalled, s.Name)
+		}
+		return nil
+	case "windows":
+		// By exit status: schtasks' messages are localised.
+		if out, err := r.Run(ctx, "schtasks", "/query", "/tn", s.Name); err != nil {
+			return fmt.Errorf("%w: schtasks /query /tn %s: %s", ErrNotInstalled, s.Name, strings.TrimSpace(decodeText([]byte(out))))
+		}
+		return nil
+	}
+	return fmt.Errorf("service: supported on linux and windows, not %s", goos)
+}

@@ -36,6 +36,8 @@ Commands:
   pair [--new]          create (or show) the pairing code and QR, then send pairing pings
   run [--once] [--timeout D]
                         run the daemon (--once: exit after the first notification is delivered)
+  stop [--timeout D]    stop the running daemon (gracefully; forcibly after D, default 20s)
+  start                 start the installed service now (schtasks /run, systemctl --user start)
   status                show configuration, pairing and daemon state
   test-push             send a test notification to the paired phone
   install [--dry-run]   start tbd automatically at logon (systemd user unit / scheduled task)
@@ -44,6 +46,8 @@ Commands:
 
 The data directory is --home, else $TBD_HOME, else %LOCALAPPDATA%\tbd (Windows) or
 ~/.local/share/tbd (Linux). config.toml lives inside it.
+
+Signing in again (or pair --new) while the daemon runs: tbd stop, tbd login, tbd start.
 `
 
 type globals struct {
@@ -81,6 +85,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		err = g.cmdPair(rest)
 	case "run":
 		err = g.cmdRun(rest)
+	case "stop":
+		err = g.cmdStop(rest)
+	case "start":
+		err = g.cmdStart(rest)
 	case "status":
 		err = g.cmdStatus(rest)
 	case "test-push":
@@ -177,6 +185,10 @@ func signalContext() (context.Context, context.CancelFunc) {
 }
 
 func (g *globals) cmdRun(args []string) (err error) {
+	// First, before the parent can exit and its PID be reused: under the Windows task tbd follows
+	// its console host, which is all that `schtasks /end` terminates (D20).
+	pw, pwhy := daemon.WatchConsoleHost()
+	defer pw.Close()
 	var once bool
 	var timeout time.Duration
 	var logFile string
@@ -208,6 +220,19 @@ func (g *globals) cmdRun(args []string) (err error) {
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
+	if pw != nil {
+		log.Info("watching the console host: tbd stops when it ends (schtasks /end)", "parent", pw.Image, "parent_pid", pw.PID)
+		go func() {
+			select {
+			case <-pw.Done():
+				log.Info("console host exited; stopping", "parent", pw.Image, "parent_pid", pw.PID)
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+	} else {
+		log.Debug("not watching the parent process", "why", pwhy)
+	}
 	return daemon.Run(ctx, daemon.Options{Home: home, Config: cfg, Logger: log, Once: once, Timeout: timeout, Version: version})
 }
 
@@ -233,7 +258,7 @@ func (g *globals) cmdLogin(args []string) error {
 	if err := daemon.Login(ctx, daemon.Options{Home: home, Config: cfg, Logger: log}); err != nil {
 		return err
 	}
-	fmt.Fprintln(g.stdout, "Signed in. Start the daemon with `tbd run` (or `tbd install`).")
+	fmt.Fprintln(g.stdout, "Signed in. Start the daemon with `tbd start` (once installed with `tbd install`) or `tbd run`.")
 	return nil
 }
 
@@ -257,7 +282,7 @@ func (g *globals) cmdPair(args []string) error {
 		// A running daemon keeps sealing with the secret it started with: a new pairing would get
 		// nothing until it restarts.
 		if held, pid := daemon.Held(home); held {
-			return fmt.Errorf("the daemon (pid %s) is running with the current pairing: stop it (systemctl --user stop tbd, or end the tbd task), run `tbd pair --new`, then start it again", pid)
+			return fmt.Errorf("the daemon (pid %s) is running with the current pairing: run `tbd stop`, then `tbd pair --new`, then `tbd start`", pid)
 		}
 	}
 	secret, err := cfg.PairingSecret()
@@ -345,6 +370,39 @@ func (g *globals) cmdStatus(args []string) error {
 		return err
 	}
 	return daemon.PrintStatus(context.Background(), g.stdout, home, cfg, version)
+}
+
+func (g *globals) cmdStop(args []string) error {
+	timeout := daemon.DefaultStopTimeout
+	if err := g.subFlags("stop", args, func(fs *flag.FlagSet) {
+		fs.DurationVar(&timeout, "timeout", timeout, "how long to wait for a graceful stop before ending the daemon")
+	}); err != nil {
+		return err
+	}
+	if timeout <= 0 {
+		return usageError{"stop: --timeout must be positive"}
+	}
+	// No config needed: stopping must work even when config.toml is broken.
+	home, err := config.ResolveHome(g.home)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := signalContext()
+	defer cancel()
+	return daemon.Stop(ctx, daemon.StopOptions{Home: home, Timeout: timeout, Out: g.stdout})
+}
+
+func (g *globals) cmdStart(args []string) error {
+	if err := g.subFlags("start", args, nil); err != nil {
+		return err
+	}
+	home, err := config.ResolveHome(g.home)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := signalContext()
+	defer cancel()
+	return daemon.Start(ctx, g.stdout, daemon.StartOptions{Home: home})
 }
 
 func (g *globals) cmdInstall(args []string, uninstall bool) error {

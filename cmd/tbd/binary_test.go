@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,8 +23,10 @@ import (
 
 	"github.com/alien2003/teams-bridge/internal/browser"
 	"github.com/alien2003/teams-bridge/internal/config"
+	"github.com/alien2003/teams-bridge/internal/daemon"
 	"github.com/alien2003/teams-bridge/internal/fcm/fcmtest"
 	"github.com/alien2003/teams-bridge/internal/proto"
+	"github.com/alien2003/teams-bridge/internal/service"
 	"github.com/alien2003/teams-bridge/test/faketeams"
 )
 
@@ -242,4 +248,217 @@ func withoutEnv(env []string, keys ...string) []string {
 		}
 	}
 	return out
+}
+
+// syncBuffer is a goroutine-safe output sink.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// waitUntil polls cond every 200 ms for up to d.
+func waitUntil(d time.Duration, cond func() bool) bool {
+	for deadline := time.Now().Add(d); time.Now().Before(deadline); time.Sleep(200 * time.Millisecond) {
+		if cond() {
+			return true
+		}
+	}
+	return cond()
+}
+
+// countStopping counts the daemon_stopping alerts the FCM mock received.
+func countStopping(t *testing.T, srv *fcmtest.Server) int {
+	t.Helper()
+	n := 0
+	for _, m := range srv.Messages() {
+		if m.DecryptErr != nil {
+			t.Fatalf("undecryptable payload: %v", m.DecryptErr)
+		}
+		if m.Decrypted != nil && m.Decrypted.T == proto.TypeAlert && m.Decrypted.Kind == proto.KindDaemonStopping {
+			n++
+		}
+	}
+	return n
+}
+
+func sawStopping(t *testing.T, srv *fcmtest.Server) bool {
+	t.Helper()
+	return countStopping(t, srv) > 0
+}
+
+func TestBinaryStopWithoutDaemon(t *testing.T) {
+	exe := tbdExe(t)
+	home := filepath.Join(t.TempDir(), "tbd home")
+	cmd := exec.Command(exe, "stop")
+	cmd.Env = append(withoutEnv(os.Environ(), "TBD_HOME"), "TBD_HOME="+home)
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "not running") {
+		t.Fatalf("tbd stop: %v\n%s", err, out)
+	}
+	if _, err := os.Stat(home); err == nil {
+		t.Error("tbd stop created the data directory")
+	}
+}
+
+// TestBinaryStopRunningDaemon: `tbd stop` against a real `tbd run` (faketeams + FCM mock) takes the
+// graceful path: daemon_stopping is pushed, the daemon exits 0 and the lock is free again.
+func TestBinaryStopRunningDaemon(t *testing.T) {
+	exe := tbdExe(t)
+	needBrowser(t)
+	_, srv, home := fixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	run := exec.CommandContext(ctx, exe, "--home", home, "run")
+	run.Env = withoutEnv(os.Environ(), "TBD_BROWSER", "TBD_HOME")
+	logs := &syncBuffer{}
+	run.Stdout, run.Stderr = logs, logs
+	if err := run.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- run.Wait() }()
+	if !waitUntil(60*time.Second, func() bool { return strings.Contains(logs.String(), `msg="session attached"`) }) {
+		t.Fatalf("the daemon did not attach\n%s", logs.String())
+	}
+	if held, pid := daemon.Held(home); !held || pid != strconv.Itoa(run.Process.Pid) {
+		t.Fatalf("lock: %v %q, want pid %d", held, pid, run.Process.Pid)
+	}
+	out, err := exec.Command(exe, "--home", home, "stop").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "Stopped after") {
+		t.Fatalf("tbd stop: %v\n%s\n%s", err, out, logs.String())
+	}
+	select {
+	case err := <-exited:
+		if err != nil {
+			t.Fatalf("tbd run exited with %v\n%s", err, logs.String())
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatalf("tbd run still running after tbd stop\n%s", logs.String())
+	}
+	if held, _ := daemon.Held(home); held {
+		t.Error("lock still held")
+	}
+	if !waitUntil(5*time.Second, func() bool { return sawStopping(t, srv) }) {
+		t.Errorf("no daemon_stopping push\n%s", logs.String())
+	}
+	l := logs.String()
+	if !strings.Contains(l, `msg="tbd stopped"`) {
+		t.Errorf("no clean shutdown in the log:\n%s", l)
+	}
+	if runtime.GOOS == "windows" && !strings.Contains(l, "stop requested (tbd stop)") {
+		t.Errorf("the stop event did not reach the daemon:\n%s", l)
+	}
+	if strings.Contains(l, "watching the console host") {
+		t.Errorf("parent watch active under the test harness:\n%s", l)
+	}
+}
+
+func TestBinaryStartWhileRunning(t *testing.T) {
+	exe := tbdExe(t)
+	home := t.TempDir()
+	lock, err := daemon.AcquireLock(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	out, err := exec.Command(exe, "--home", home, "start").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "already running (pid "+strconv.Itoa(os.Getpid())+")") {
+		t.Fatalf("tbd start: %v\n%s", err, out)
+	}
+}
+
+// TestBinaryScheduledTaskEnd is the D20 scenario on the Windows host: tbd.exe runs from a
+// scheduled task tbd-test-<random> whose action is the real install's (conhost.exe --headless
+// tbd.exe run --home … --log-file …), against faketeams and the FCM mock; `schtasks /end` must stop
+// it gracefully. (Started straight from a test, conhost --headless does not run its client: it
+// finds standard handles and acts as a ConPTY server; only Task Scheduler starts it as in
+// production.) Before that, `tbd stop` followed by `schtasks /run` (what `tbd start` runs) must
+// bring it back. The task is created and deleted by this test, like the service round trip.
+func TestBinaryScheduledTaskEnd(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows only: a scheduled task tbd-test-<random>")
+	}
+	exe := tbdExe(t)
+	needBrowser(t)
+	_, srv, home := fixture(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	r := service.ExecRunner{}
+	b := make([]byte, 6)
+	if _, err := rand.Read(b); err != nil {
+		t.Fatal(err)
+	}
+	name := "tbd-test-" + hex.EncodeToString(b)
+	logFile := daemon.LogFile(home)
+	spec := service.Spec{Name: name, Exe: exe, Home: home, ExtraArgs: []string{"--log-file", logFile},
+		Description: "tbd stop test task; deleted by the test", NoStart: true}
+	plan, err := service.InstallPlan(spec, "windows", service.DefaultEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		cctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		if held, _ := daemon.Held(home); held { // never leave a tbd.exe behind
+			_ = exec.Command(exe, "--home", home, "stop", "--timeout", "5s").Run()
+		}
+		un, err := service.UninstallPlan(spec, "windows", service.DefaultEnv())
+		if err == nil {
+			err = service.Apply(cctx, un, r, io.Discard, false)
+		}
+		if _, qerr := r.Run(cctx, "schtasks", "/query", "/tn", name); qerr == nil {
+			t.Errorf("task %s still exists (%v); remove it with: schtasks /delete /tn %s /f", name, err, name)
+		}
+	})
+	var applyLog bytes.Buffer
+	if err := service.Apply(ctx, plan, r, &applyLog, false); err != nil {
+		t.Fatalf("create task: %v\n%s", err, applyLog.String())
+	}
+	readLog := func() string { b, _ := os.ReadFile(logFile); return string(b) }
+	runTask := func(n int) { // the n-th start; MultipleInstancesPolicy IgnoreNew: only once the last instance ended
+		t.Helper()
+		if out, err := r.Run(ctx, "schtasks", "/run", "/tn", name); err != nil {
+			t.Fatalf("schtasks /run: %v: %s", err, out)
+		}
+		if !waitUntil(90*time.Second, func() bool { return strings.Count(readLog(), `msg="session attached"`) >= n }) {
+			t.Fatalf("start %d: the task's daemon did not attach\n%s", n, readLog())
+		}
+	}
+	// 1. `tbd stop` ends the task instance (conhost exits with its client), so the task can run
+	// again: that is what `tbd start` does.
+	runTask(1)
+	if out, err := exec.Command(exe, "--home", home, "stop").CombinedOutput(); err != nil || !strings.Contains(string(out), "Stopped after") {
+		t.Fatalf("tbd stop: %v\n%s\n%s", err, out, readLog())
+	}
+	runTask(2)
+	// 2. schtasks /end.
+	_, pid := daemon.Held(home)
+	if !strings.Contains(readLog(), "watching the console host") || !strings.Contains(readLog(), "parent=conhost.exe") {
+		t.Fatalf("no parent watch on conhost\n%s", readLog())
+	}
+	if out, err := r.Run(ctx, "schtasks", "/end", "/tn", name); err != nil {
+		t.Fatalf("schtasks /end: %v: %s", err, out)
+	}
+	if !waitUntil(60*time.Second, func() bool { held, _ := daemon.Held(home); return !held }) {
+		t.Fatalf("tbd.exe (pid %s) still runs after schtasks /end\n%s", pid, readLog())
+	}
+	l := readLog()
+	if !strings.Contains(l, "stop requested (tbd stop)") || !strings.Contains(l, "console host exited; stopping") || strings.Count(l, `msg="tbd stopped"`) != 2 {
+		t.Errorf("not two graceful stops in the log:\n%s", l)
+	}
+	if !waitUntil(5*time.Second, func() bool { return countStopping(t, srv) == 2 }) {
+		t.Errorf("%d daemon_stopping pushes, want 2\n%s", countStopping(t, srv), l)
+	}
 }

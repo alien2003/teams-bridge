@@ -71,6 +71,12 @@ tbd status     # pairing, browser, last heartbeat and last delivered message
 heartbeat every 6 hours; the app warns you if none arrived for 12 hours. If Teams signs you out,
 the phone gets a "session expired" alert.
 
+`tbd stop` stops the running daemon, whichever way it was started: it asks it to stop gracefully
+(the phone gets a "daemon stopping" alert, the browser closes) and ends it only if it is still
+running after 20 s (`--timeout`). `tbd start` starts the installed service again
+(`systemctl --user start tbd.service`, or `schtasks /run /tn tbd` on Windows); with a daemon already
+running it does nothing. `tbd login` and `tbd pair --new` refuse while the daemon runs, and say so.
+
 ### WSL
 
 WSL does not start on its own, and a distribution stops when nothing keeps it running. In WSL,
@@ -86,7 +92,8 @@ just the VM) from idling out. systemd must be enabled in `/etc/wsl.conf` (`[boot
 Use `tbd.exe` natively with the installed Edge; no WSL needed. `tbd install` registers a scheduled
 task for your user that starts `tbd.exe run` at logon in a hidden console (`conhost.exe --headless`),
 logging to `%LOCALAPPDATA%\tbd\tbd.log`. It needs no administrator rights. The data directory is
-`%LOCALAPPDATA%\tbd`; the browser profile inside it is called `tbd`.
+`%LOCALAPPDATA%\tbd`; the browser profile inside it is called `tbd`. `tbd stop` / `tbd start` stop
+and start it; ending the task (`schtasks /end /tn tbd`, or *End* in Task Scheduler) stops tbd too.
 
 Edge keeps some per-user bookkeeping in the registry no matter which profile it runs
 (`HKCU\Software\Microsoft\Edge\…`); for the `tbd` profile that is the key `PreferenceMACs\tbd`.
@@ -100,15 +107,26 @@ Edge keeps some per-user bookkeeping in the registry no matter which profile it 
 * **Long notifications.** FCM documents a 2048-byte data limit for topic messages; tbd's larger
   padding class is 2769 bytes. FCM accepted such messages when tested (2026-11); should it ever
   reject one, tbd resends it shortened to the smaller class automatically (logged as a warning).
-* **"Session expired" alert.** Stop the daemon (`systemctl --user stop tbd`, or end the task), run
-  `tbd login` again, start the daemon.
+* **"Session expired" alert.** `tbd stop`, then `tbd login` (sign in, close the window), then
+  `tbd start`.
+* **`tbd login` says "another tbd process is using this data directory (pid N): stop the daemon
+  first"** although the Windows task was ended. That is a `tbd.exe` from before `tbd stop` existed:
+  its `schtasks /end /tn tbd` ended only the hidden console (`conhost.exe`) and left `tbd.exe`
+  running. When upgrading, stop that old daemon *before* copying the new `tbd.exe` over it: the old
+  binary on your `PATH` has no `stop` command (it answers `unknown command "stop"`), and Windows
+  refuses to overwrite a running exe. Run the new binary from where you built or downloaded it,
+  naming the data directory, e.g. `dist\tbd.exe stop --home %LOCALAPPDATA%\tbd`: the old daemon does
+  not listen for `tbd stop`, so it waits 20 s and then ends it (no "daemon stopping" alert reaches
+  the phone). Ending `tbd.exe` in Task Manager works too. Then copy the new `tbd.exe` into place and
+  run `tbd start`. From this version on, ending the task stops tbd as well, and a refusal reads
+  "tbd is already running for this data directory (pid N): run `tbd stop`, then this command again".
 * **Latency.** FCM topic messages can take from seconds to a few minutes; high priority is requested,
   but battery savers and Doze may still delay them. Exempt Teams Bridge from battery optimisation.
 * **Tap opens a browser tab instead of the PWA.** Only Chrome and Edge install a real WebAPK, which
   Android can route links to. Vivaldi, Firefox, Brave and others open a tab instead.
 * **A tap opens Teams but not the chat.** Teams' notifications carry no chat id; tbd finds the chat
-  in Teams' chat list, which exists only in the **Chat** view. Run `tbd login`, open Chat, close the
-  window, restart the daemon. The log line `chat list survey` (no names or text in it) should show
+  in Teams' chat list, which exists only in the **Chat** view. `tbd stop`, `tbd login`, open Chat,
+  close the window, `tbd start`. The log line `chat list survey` (no names or text in it) should show
   `conversation_items` above 0. Channel posts open Teams for now, and so does a message whose chat
   the list does not show with that message as its preview (tbd prefers Teams' start page to a
   wrong chat).

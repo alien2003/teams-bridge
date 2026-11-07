@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -124,7 +125,7 @@ func linuxInstall(s Spec, env Env) (Plan, error) {
 	} else {
 		// restart, not start: a re-install picks up the new unit and binary.
 		p.Commands = append(p.Commands, systemctl("restart", unitName))
-		p.Notes = append(p.Notes, fmt.Sprintf("%s starts with your user session; install also (re)starts it now.\nStatus: systemctl --user status %s; logs: journalctl --user -u %s -f", unitName, unitName, unitName))
+		p.Notes = append(p.Notes, fmt.Sprintf("%s starts with your user session; install also (re)starts it now.\nStatus: systemctl --user status %s; logs: journalctl --user -u %s -f; stop: tbd stop; start again: tbd start", unitName, unitName, unitName))
 	}
 	if wsl, distro := detectWSL(env); wsl {
 		p.Notes = append(p.Notes, wslInstallNote(s, env, distro))
@@ -299,3 +300,24 @@ func UnitState(ctx context.Context, r Runner, name string) (string, error) {
 	}
 	return "", fmt.Errorf("systemctl --user is-enabled %s.service: %w: %s", name, err, strings.TrimSpace(out))
 }
+
+// MainPID is the main process of the user unit <name>.service (`systemctl --user show -p MainPID`),
+// 0 when it is not running or unknown.
+func MainPID(ctx context.Context, r Runner, name string) (int, error) {
+	if r == nil {
+		r = ExecRunner{}
+	}
+	out, err := r.Run(ctx, "systemctl", "--user", "show", "-p", "MainPID", "--value", name+".service")
+	if err != nil {
+		return 0, fmt.Errorf("systemctl --user show -p MainPID %s.service: %w: %s", name, err, strings.TrimSpace(out))
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, fmt.Errorf("systemctl --user show -p MainPID %s.service: unexpected answer %q", name, strings.TrimSpace(out))
+	}
+	return pid, nil
+}
+
+// StopCommand stops the user unit without waiting for it (the caller watches the lock instead).
+// With Restart=always a daemon that merely exits on SIGTERM would be started again by systemd.
+func StopCommand(name string) []string { return systemctl("stop", "--no-block", name+".service") }

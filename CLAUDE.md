@@ -3,7 +3,7 @@
 `tbd` is a Go daemon that keeps Microsoft Teams web open in a headless Edge driven over CDP, catches
 every notification the page raises and pushes it end-to-end encrypted, as an FCM topic data message,
 to the Android app **Teams Bridge** (`android/`). There is no server of ours and no reverse channel.
-`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D19) records what was decided and measured,
+`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D20) records what was decided and measured,
 and where an entry says "brief corrected", DECISIONS wins.
 
 ## Rules
@@ -159,8 +159,8 @@ phone: MessagingService → decrypt + replay filter → Notifier → tap → Ope
 
 | Path | Concern |
 |---|---|
-| `cmd/tbd/` | thin CLI: `login`, `pair [--new] [--invert] [--ping-for]`, `run [--once] [--timeout] [--log-file]`, `status`, `test-push`, `install`/`uninstall [--dry-run]`, `version`; `--home`/`--log-level` go before or after the command |
-| `internal/daemon/` | the wiring: supervise/runBrowser, onBinding, dedup, outbox, chat-list survey, `state.json`, `tbd.lock`, install; in-process E2E |
+| `cmd/tbd/` | thin CLI: `login`, `pair [--new] [--invert] [--ping-for]`, `run [--once] [--timeout] [--log-file]`, `stop [--timeout]`, `start`, `status`, `test-push`, `install`/`uninstall [--dry-run]`, `version`; `--home`/`--log-level` go before or after the command |
+| `internal/daemon/` | the wiring: supervise/runBrowser, onBinding, dedup, outbox, chat-list survey, `state.json`, `tbd.lock` (+ Windows stop event), stop/start, console-host watch (D20), install; in-process E2E |
 | `internal/browser/` | Launch (switches, `msImplicitSignin` off, process group / job object), Attach (CDP, workers, events), windowed Login, UA + client hints |
 | `internal/hook/` | `preload.js`, `worker.js`, `drain.js`, `survey.js` (go:embed); `Parse`, `DeepLink`, `SenderMRI`, `Shape`, `DescribeData`, `Counts` |
 | `internal/session/` | Detector, Debouncer, `probe.js`, FailureTracker/Backoff, heartbeat |
@@ -263,5 +263,6 @@ command grep -E 'notification captured|chat list survey' "$LOG" | tail -n 5
 - **Edge on Windows writes HKCU state whatever `--user-data-dir` says** (D14): keep profile `tbd` and
   `--disable-features=msImplicitSignin` (else it signs in to Windows and opens a sync-dialog page).
 - `msedge.exe --version` opens a window: the version comes from the dir next to the exe (D7).
-  `tbd login` and the daemon share `<home>/tbd.lock`: stop the daemon first. In agent shells `grep`
+  `tbd login` and the daemon share `<home>/tbd.lock`: `tbd stop` first (`schtasks /end` alone left
+  tbd.exe running before D20). In agent shells `grep`
   may be a shell function (`-qv` exits 0 on empty input): use `command grep` for exit-code checks.

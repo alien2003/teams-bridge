@@ -38,7 +38,7 @@ Would run:
   systemctl --user restart tbd-test-golden.service
 
 tbd-test-golden.service starts with your user session; install also (re)starts it now.
-Status: systemctl --user status tbd-test-golden.service; logs: journalctl --user -u tbd-test-golden.service -f
+Status: systemctl --user status tbd-test-golden.service; logs: journalctl --user -u tbd-test-golden.service -f; stop: tbd stop; start again: tbd start
 
 To run it without a login session (headless machine): loginctl enable-linger alice
 `
@@ -108,7 +108,7 @@ func TestDryRunWindowsExact(t *testing.T) {
 		`  schtasks /create /tn tbd /xml "C:\Users\alice\tbd data\tbd.task.xml" /f` + "\n" +
 		"  schtasks /run /tn tbd\n\n" +
 		`Task tbd starts tbd hidden (conhost --headless) at every logon of PC\alice; install also starts it now.` + "\n" +
-		"Status: schtasks /query /tn tbd /v /fo list; stop: schtasks /end /tn tbd\n"
+		"Status: schtasks /query /tn tbd /v /fo list; stop: tbd stop; start again: tbd start\n"
 	if got := dryRun(t, p); got != want {
 		t.Errorf("windows dry run\n--- got\n%s--- want\n%s", got, want)
 	}

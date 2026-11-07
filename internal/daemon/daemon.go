@@ -150,6 +150,9 @@ func Run(ctx context.Context, o Options) error {
 		return err
 	}
 	defer lock.Release()
+	if lock.StopErr != nil {
+		log.Warn("no stop event: `tbd stop` can only end this daemon forcibly", "err", lock.StopErr)
+	}
 
 	d := &daemon{
 		o: o, cfg: cfg, log: log, secret: secret, sender: sender,
@@ -176,6 +179,19 @@ func Run(ctx context.Context, o Options) error {
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	// `tbd stop` on Windows (a named event; on Unix it sends SIGTERM, which cancels ctx): the same
+	// shutdown as a signal, daemon_stopping included. The goroutine gets its own copies of the
+	// channel and the context: runCtx is reassigned below (--timeout) and Release clears the
+	// Lock's listener, both concurrently with it.
+	stop, stopCtx := lock.StopRequested(), runCtx
+	go func() {
+		select {
+		case <-stop:
+			log.Info("stop requested (tbd stop)")
+			cancel()
+		case <-stopCtx.Done():
+		}
+	}()
 	if o.Timeout > 0 {
 		var c2 context.CancelFunc
 		runCtx, c2 = context.WithTimeout(runCtx, o.Timeout)
@@ -313,7 +329,7 @@ func (d *daemon) onAlert(a session.Alert) {
 	m := proto.Message{T: proto.TypeAlert, Kind: a.Kind, Title: session.Title(a.Kind), URL: d.cfg.TeamsURL}
 	switch a.Kind {
 	case proto.KindSessionExpired:
-		m.Body = "Sign in again on the computer: stop tbd, run `tbd login`, start tbd."
+		m.Body = "Sign in again on the computer: run `tbd stop`, `tbd login`, then `tbd start`."
 	case proto.KindBrowserDead:
 		m.Body = "tbd cannot keep the browser running on the computer. Check `tbd status` and the logs."
 	}
@@ -551,9 +567,21 @@ func (d *daemon) runBrowser(ctx context.Context, started func()) error {
 func Login(ctx context.Context, o Options) error {
 	lock, err := AcquireLock(o.Home)
 	if err != nil {
-		return fmt.Errorf("%w: stop the daemon first", err)
+		return err // names the fix: tbd stop
 	}
 	defer lock.Release()
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	// `tbd stop` (Windows) ends a login like Ctrl+C. The channel is read here: Release clears it,
+	// possibly while the goroutine starts.
+	stop := lock.StopRequested()
+	go func() {
+		select {
+		case <-stop:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	b, err := o.Config.DetectBrowser()
 	if err != nil {
 		return err
