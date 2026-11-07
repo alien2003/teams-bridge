@@ -57,6 +57,8 @@ jobs:
         run: mise run lint
       - name: actionlint, zizmor, shellcheck
         run: mise run lint-ci
+      - name: Release script tests (version.sh, release-notes.sh)
+        run: mise run test-scripts
       - name: Secret patterns and forbidden files (the stop list stays on the dev PC)
         run: mise run secrets-check
         env:

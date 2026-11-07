@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # BRIEF §9: dist/tbd (linux/amd64, static), dist/tbd.exe (windows/amd64), dist/teams-bridge-debug.apk.
 # Usage: build.sh [all|go|linux|windows|android]
+# The version stamped into tbd is TBD_VERSION if set (scripts/build-release.sh: the release tag),
+# else `git describe`.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p .tmp   # TMPDIR (mise.toml); a fresh clone has none
 what="${1:-all}"
-version="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+version="${TBD_VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
 ldflags="-s -w -X main.version=$version"
 mkdir -p dist
 build_go() { # os out

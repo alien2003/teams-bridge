@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 mkdir -p .tmp                               # TMPDIR (mise.toml); a fresh clone has none
 scripts/lint.sh
+scripts/test-scripts.sh                     # the release scripts' table tests
 scripts/fetch-edge.sh >/dev/null            # the E2E tests need a real browser
 scripts/build.sh windows                    # build-go's other half (test-go builds dist/tbd)
 scripts/test-go.sh

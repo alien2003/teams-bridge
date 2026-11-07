@@ -48,6 +48,10 @@ run = "scripts/build.sh"
 description = "Build only the Go binaries"
 run = "scripts/build.sh go"
 
+[tasks.release-build]
+description = "Release assets into dist/release/: signed APK, R8 mapping, tbd for Linux and Windows, SHA256SUMS"
+run = "scripts/build-release.sh"
+
 [tasks.lint]
 description = "gofmt, go vet, staticcheck"
 run = "scripts/lint.sh"
@@ -63,6 +67,10 @@ run = "scripts/test.sh"
 [tasks.test-go]
 description = "build-go, then go test ./... against dist/tbd and a real browser (TBD_REQUIRE_BROWSER=1)"
 run = "scripts/test-go.sh"
+
+[tasks.test-scripts]
+description = "Table tests of the release scripts (version.sh, release-notes.sh)"
+run = "scripts/test-scripts.sh"
 
 [tasks.test-win]
 description = "Cross-compile and run the Go tests on the Windows host (inside TBD_WIN_SANDBOX)"

@@ -45,6 +45,47 @@ mise run test       # Go unit + E2E tests against a fake Teams in a real headles
 Without `android/app/google-services.json` the build drops in a placeholder: the APK builds, but push
 does not work until you rebuild with your real file.
 
+`mise run release-build` builds what a release publishes into `dist/release/` (signed APK, R8
+mapping, both binaries, `SHA256SUMS`); it needs a release key, see
+[`docs/DECISIONS.md`](docs/DECISIONS.md) D23 and `scripts/build-release.sh`.
+
+## Install from a release
+
+Every [release](https://github.com/alien2003/teams-bridge/releases) is built by GitHub Actions from
+the tagged commit and carries `tbd-linux-amd64`, `tbd-windows-amd64.exe`, `teams-bridge.apk`,
+`teams-bridge-mapping.txt.gz` (to read an obfuscated stack trace) and `SHA256SUMS`, each with a
+build provenance attestation. Tags `vX.Y.Z-rc.N` are prereleases.
+
+**The release APK is built for the maintainer's Firebase project:** it receives only what is sent
+with that project's service account. With your own Firebase project (see Prerequisites), take the
+`tbd` binary from the release and build the APK yourself with your `google-services.json`.
+
+Verify what you downloaded (`gh` and `apksigner` are optional; `apksigner` is in the Android SDK's
+build-tools):
+
+```sh
+sha256sum -c SHA256SUMS --ignore-missing
+gh attestation verify tbd-linux-amd64 -R alien2003/teams-bridge \
+  --signer-workflow alien2003/teams-bridge/.github/workflows/release.yml
+apksigner verify --print-certs teams-bridge.apk
+```
+
+The APK must be signed by exactly this certificate (also in
+[`android/release-cert.sha256`](android/release-cert.sha256)):
+
+```
+SHA-256 46:FC:C9:4A:53:66:85:09:66:12:4F:5C:30:A1:A4:C6:33:F0:3C:A8:2E:01:89:C7:48:63:19:E1:BA:16:FC:3E
+```
+
+On Windows, compare `Get-FileHash tbd-windows-amd64.exe` with `SHA256SUMS`, then
+`Unblock-File tbd-windows-amd64.exe`; the binary has no Authenticode signature, so SmartScreen may
+warn. Rename it to `tbd.exe` (on Linux: `install -m755 tbd-linux-amd64 ~/.local/bin/tbd`).
+
+**Coming from a self-built debug APK:** the release is signed by a different key, so Android will
+not update one with the other. Uninstall the debug app first, install `teams-bridge.apk`, then pair
+again with `tbd pair` (without `--new`, so the daemon keeps its secret) and choose **Open Teams in**,
+notifications and battery optimisation again.
+
 ## Set up
 
 Put the binary on your `PATH` (Linux: `install -m755 dist/tbd ~/.local/bin/tbd`; Windows: copy

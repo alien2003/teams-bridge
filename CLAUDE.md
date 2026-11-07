@@ -3,7 +3,7 @@
 `tbd` is a Go daemon that keeps Microsoft Teams web open in a headless Edge driven over CDP, catches
 every notification the page raises and pushes it end-to-end encrypted, as an FCM topic data message,
 to the Android app **Teams Bridge** (`android/`). There is no server of ours and no reverse channel.
-`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D22) records what was decided and measured,
+`BRIEF.md` is the original spec; `docs/DECISIONS.md` (D1–D23) records what was decided and measured,
 and where an entry says "brief corrected", DECISIONS wins.
 
 ## Rules
@@ -174,10 +174,11 @@ phone: MessagingService → decrypt + replay filter → Notifier → tap → Ope
 | `test/faketeams/` | fake Teams (`site/`) + httptest server; browser-level E2E |
 | `android/` | Gradle project, app `io.github.alien2003.teamsbridge`; `…/proto/` = Kotlin twin of `internal/proto`; no Gradle wrapper (mise's `gradle`) |
 | `proto/` | `PROTOCOL.md` + `vectors.json` (frozen, read by Go and Kotlin tests) |
-| `.github/` | `workflows/ci.yml` (lint, Go tests on Linux and Windows with the runners' Edge, Android tests + debug APK; D22), `dependabot.yml` |
-| `scripts/`, `scripts/win/` | what the mise tasks run; `win/lib.sh` = sandbox helpers; `outside-table.sh` parses the tables of OUTSIDE.md and the git-ignored OUTSIDE.local.md between their markers (keep the five columns); `secrets-lib.sh` = patterns + stop list shared by `secrets-check.sh` and `prepush-check.sh` |
+| `.github/` | `workflows/ci.yml` (lint, Go tests on Linux and Windows with the runners' Edge, Android tests + debug APK; D22), `workflows/release.yml` (tag `v*` → CI, signed build, provenance, published release; D23), `dependabot.yml` |
+| `scripts/`, `scripts/win/` | what the mise tasks run; `win/lib.sh` = sandbox helpers; `outside-table.sh` parses the tables of OUTSIDE.md and the git-ignored OUTSIDE.local.md between their markers (keep the five columns); `secrets-lib.sh` = patterns + stop list shared by `secrets-check.sh` and `prepush-check.sh`; `version.sh` (tag → versionCode/Name) and `release-notes.sh` need only bash and git (the release workflow runs them before mise) |
 
-Git-ignored, inside the repo: `.local/` (dev `TBD_HOME=.local/tbd`, `denylist.txt`), `.tools/`
+Git-ignored, inside the repo: `.local/` (dev `TBD_HOME=.local/tbd`, `denylist.txt`, the release
+key `release/teams-bridge-release.p12` + `keystore.pass`: never print, copy or commit them), `.tools/`
 (Edge, Android SDK, `debug.keystore`), `.tmp/` (`TMPDIR`, `stamp`, `go-test.log`), `.xdg/` (all
 redirected caches, including the Go module cache), `.cache/ref/`, `dist/`, `.env.local`,
 `OUTSIDE.local.md` (host-specific noise rows of this machine).
@@ -191,11 +192,13 @@ From the repo root (`mise tasks` lists them); anything that is not a task runs a
 | `mise trust && mise install && mise run hooks` | first time in a checkout (`hooks` installs the pre-push check, D21) |
 | `mise run prepush-check` | what the pre-push hook checks, over every ref: stop list over all trees and commit objects, secret patterns, author/committer emails, `+0000` offsets |
 | `mise run build` | `dist/tbd` (static), `dist/tbd.exe`, `dist/teams-bridge-debug.apk` (fails at ≥ 6 MB) |
+| `mise run release-build` | `dist/release/`: signed release APK, R8 mapping, `tbd-linux-amd64`, `tbd-windows-amd64.exe`, `SHA256SUMS` (D23); clean tree only (`TBD_RELEASE_ALLOW_DIRTY=1` for a trial); the key from the environment or `.local/release/`; never print the password |
 | `mise run build-go` | Go binaries only; one target: `mise exec -- scripts/build.sh linux\|windows\|android` |
 | `mise run lint` | gofmt, then go vet + staticcheck for GOOS linux and windows; before every commit |
 | `mise run lint-ci` | actionlint + `zizmor --offline` over `.github/`, `bash -n` + shellcheck over every script; after touching `.github/` or `scripts/` |
-| `mise run test` | lint, `edge`, `build-go`, then `test-go` and the Android JVM tests with warnings as errors |
+| `mise run test` | lint, `test-scripts`, `edge`, `build-go`, then `test-go` and the Android JVM tests with warnings as errors |
 | `mise run test-go` | builds `dist/tbd`, then `go test -count=1 ./...` with `TBD_REQUIRE_BROWSER=1` (log in `.tmp/go-test.log`); what CI runs on Linux and, natively, on Windows |
+| `mise run test-scripts` | table tests of `version.sh` and `release-notes.sh` (part of `test` and the CI lint job) |
 | `mise exec -- go test -count=1 -run TestX ./internal/hook/` | inner loop on one package |
 | `mise exec -- scripts/test-android.sh` | Android JVM tests only |
 | `mise run test-win` | cross-compiles, runs every `<pkg>.test.exe` in the sandbox, ends with `check-outside-win`; takes minutes and flashes a login window |

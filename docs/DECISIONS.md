@@ -670,3 +670,64 @@ finding checked by a skeptical verifier, found 31 real issues; all are fixed:
   Windows runner's session lets the windowed login tests and `TestBinaryScheduledTaskEnd` (a
   scheduled task with an interactive logon) run, and whether `HOME` is set there. Fixes go into
   separate commits.
+
+## D23 — Releases: signed APK, tbd binaries, provenance
+
+* **A pushed tag `vX.Y.Z` or `vX.Y.Z-rc.N` publishes a GitHub release** without a draft or a
+  reviewer (`.github/workflows/release.yml`); an rc tag (the only accepted kind with a "-") becomes
+  a prerelease. Assets, unversioned so `releases/latest/download/<name>` and an APK filter stay
+  fixed: `teams-bridge.apk`, `teams-bridge-mapping.txt.gz`, `tbd-linux-amd64`,
+  `tbd-windows-amd64.exe`, `SHA256SUMS`. amd64 only. Jobs: `tag` (contents: read; the tag parses
+  and points at a commit on `main`; writes the notes), `verify` (the whole of `ci.yml` through
+  `workflow_call`; caches restored, never saved on a tag), `build` (the only job with secrets, in
+  the environment `release`; contents: read, id-token and attestations: write; no caches at all, so
+  nothing a pull request wrote reaches the signed build; `actions/attest-build-provenance` v4.2.2
+  over `SHA256SUMS`), `publish` (contents: write; `gh release create --verify-tag` with the
+  downloaded assets after `sha256sum -c`). `actions/download-artifact` v8.0.2. The reusable call
+  keeps the `./` form: zizmor 1.32 prefers `$/`, which actionlint 1.7.12 rejects (an inline
+  `zizmor: ignore`; a reusable workflow is resolved from the commit at queue time, not from the
+  workspace).
+* **Version from the tag** (`scripts/version.sh`, bash and git only): `versionCode = MAJOR·10⁶ +
+  MINOR·10⁴ + PATCH·100 + (N for rc.N, 99 for the release)`, so v0.1.0 = 10099 and every rc sorts
+  below its release; MINOR, PATCH < 100, N in 1..98, MAJOR < 2100, no leading zeros, anything else
+  refused. Without a tag at HEAD a build is the development version (code 1,
+  `0.0.0-dev+<commit>[.dirty]`); a plain Gradle build is `1` / `0.0.0-dev`. Gradle takes
+  `-Ptbd.versionCode` / `-Ptbd.versionName`; tbd gets `-X main.version=<tag>` via `TBD_VERSION`.
+  `mise run test-scripts` (also in `test` and the CI lint job) table-tests the scheme and the notes.
+* **Signing in Gradle from the environment only**: `TBD_RELEASE_KEYSTORE` (path, PKCS12),
+  `TBD_RELEASE_KEYSTORE_PASSWORD` (store = key password), `TBD_RELEASE_KEY_ALIAS` (default
+  `teams-bridge`); without the keystore variable the release APK is unsigned. v2 + v3 signatures
+  (v3 leaves room for a key rotation; with minSdk 28 apksigner reports only v3 as verified), no v1.
+  `scripts/build-android.sh release` runs a signed build with `--no-configuration-cache
+  --no-daemon`, so the password is neither in a configuration-cache entry nor in a JVM that
+  outlives the build (checked: no file under `android/`, `.xdg/gradle`, `.tmp`, `dist` contains it
+  afterwards). `scripts/build-release.sh` (`mise run release-build`) also takes the keystore as
+  `TBD_RELEASE_KEYSTORE_B64` (decoded with umask 077 into `.tmp/release.*`, removed on exit) and the
+  password from `TBD_RELEASE_KEYSTORE_PASSWORD_FILE`; with nothing set it uses the maintainer's
+  local copy in `.local/release/`. CI secrets: `TBD_RELEASE_KEYSTORE_B64`,
+  `TBD_RELEASE_KEYSTORE_PASSWORD`, `TBD_RELEASE_KEY_ALIAS`, `TBD_GOOGLE_SERVICES_JSON_B64`.
+* **The release key**: RSA 4096, certificate valid until 2054, SHA-256
+  `46:FC:C9:4A:53:66:85:09:66:12:4F:5C:30:A1:A4:C6:33:F0:3C:A8:2E:01:89:C7:48:63:19:E1:BA:16:FC:3E`,
+  committed as `android/release-cert.sha256`. A release build fails unless exactly one signer with
+  exactly this certificate signed it (`TBD_RELEASE_CERT_FILE` overrides the file for tests), the
+  APK is not debuggable (`aapt2 dump badging`), its versionCode/versionName are the tag's, and it is
+  under 6 MB like the debug APK. `build-release.sh` also refuses a dirty tree, a tag that does not
+  point at HEAD, a missing or placeholder `google-services.json`, binaries that are not
+  `CGO_ENABLED=0` amd64 or not stamped with the tag, and checks `sha256sum -c SHA256SUMS`.
+* **The release APK carries the maintainer's Firebase configuration** (`google-services.json` from
+  the secret), so it receives only from a daemon holding that project's service account: other
+  users build their own APK against their own project (README). Its project id, API key and sender
+  number become public with the APK; none of them lets anyone send (that needs the service account).
+* **R8 in release** shrinks, optimises and obfuscates (debug only shrinks); the mapping ships as
+  `teams-bridge-mapping.txt.gz`. Checked on the first signed build (2026-11-07): the app uses no
+  reflection (JCA by algorithm name, platform `org.json`, enums not persisted by name), the
+  manifest classes keep their names, WorkManager's consumer rules keep
+  `WatchdogWorker(Context, WorkerParameters)`, Firebase's keep every `ComponentRegistrar`; `seeds.txt`
+  lists all of them. No keep rule had to be added. Release APK 1.81 MB (debug 3.07 MB). The assets
+  contain no absolute host path. `dependenciesInfo` is off (a blob encrypted for Google that
+  F-Droid-style scanners flag). The behaviour on a phone is still to be checked with the first rc.
+* **Notes** (`scripts/release-notes.sh`): the `CHANGELOG.md` section of the version if that file
+  exists, else the annotated tag's message when it says more than the tag name, else the `feat` /
+  `fix` / `perf` subjects since the previous release tag (a final release counts from the previous
+  final release); then the asset table and how to verify (`sha256sum -c`, `gh attestation verify
+  --signer-workflow`, `apksigner verify --print-certs`, the certificate fingerprint).

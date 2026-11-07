@@ -2,7 +2,7 @@
 # ecosystem. Versions are pinned and recorded in docs/DECISIONS.md, so a PR is a proposal: merge it
 # together with the DECISIONS line. Not covered here, updated by hand: mise.toml (go, temurin,
 # gradle, staticcheck, actionlint, zizmor, shellcheck; `mise outdated` lists them), the mise version
-# in ci.yml, buildToolsVersion and the SDK packages in scripts/android-sdk.sh.
+# in ci.yml and release.yml, buildToolsVersion and the SDK packages in scripts/android-sdk.sh.
 version: 2
 updates:
   - package-ecosystem: github-actions
