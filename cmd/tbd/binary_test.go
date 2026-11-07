@@ -111,6 +111,12 @@ func TestBinaryRunOnce(t *testing.T) {
 	if !strings.Contains(logs, `msg="browser started"`) {
 		t.Errorf("no browser start in the log:\n%s", logs)
 	}
+	if runtime.GOOS == "darwin" {
+		// Auto-detection found the browser's bundle in /Applications (D26).
+		if !strings.Contains(logs, "source=macos-standard") || !strings.Contains(logs, ".app/Contents/MacOS/") {
+			t.Errorf("no browser bundle was auto-detected:\n%s", logs)
+		}
+	}
 	if runtime.GOOS == "windows" {
 		// BRIEF §7: auto-detection found msedge.exe with no config; logs carry Windows paths.
 		if !strings.Contains(logs, "source=windows-standard") || !strings.Contains(strings.ToLower(logs), `\msedge.exe`) {
@@ -141,19 +147,37 @@ func TestBinaryStatusInstallDryRunVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("install --dry-run: %v\n%s", err, out)
 	}
-	want := "ExecStart="
-	if runtime.GOOS == "windows" {
-		want = "conhost.exe"
+	wants := []string{"ExecStart=", "systemctl --user enable tbd.service"}
+	switch runtime.GOOS {
+	case "windows":
+		wants = []string{"conhost.exe", "schtasks /create /tn tbd "}
+	case "darwin":
+		wants = []string{"<key>ProgramArguments</key>", "launchctl bootstrap gui/", "/Library/LaunchAgents/tbd.plist", "<string>--log-file</string>"}
 	}
-	if !strings.Contains(string(out), want) || !strings.Contains(string(out), "run") {
-		t.Fatalf("install --dry-run output lacks %q:\n%s", want, out)
+	for _, want := range append(wants, "run") {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("install --dry-run output lacks %q:\n%s", want, out)
+		}
 	}
 	after, _ := os.ReadDir(home)
 	if len(after) != len(before) {
 		t.Fatalf("install --dry-run changed the data dir: %v → %v", before, after)
 	}
+	// TBD_TEST_SERVICE_NAME renames the service, but only to a test name.
+	dry := func(name string) (string, error) {
+		cmd := exec.Command(exe, "--home", home, "install", "--dry-run")
+		cmd.Env = append(withoutEnv(os.Environ(), service.TestNameEnv), service.TestNameEnv+"="+name)
+		b, err := cmd.CombinedOutput()
+		return string(b), err
+	}
+	if o, err := dry("tbd-test-0123456789ab"); err != nil || !strings.Contains(o, "tbd-test-0123456789ab") {
+		t.Errorf("install --dry-run with a test name: %v\n%s", err, o)
+	}
+	if o, err := dry("tbd-other"); err == nil || !strings.Contains(o, service.TestNameEnv) {
+		t.Errorf("install --dry-run with a non-test name: %v\n%s", err, o)
+	}
 	out, err = exec.Command(exe, "version").CombinedOutput()
-	if err != nil || !strings.Contains(string(out), "protocol v1") {
+	if err != nil || !strings.Contains(string(out), "protocol v1") || !strings.HasSuffix(strings.TrimSpace(string(out)), runtime.GOOS+"/"+runtime.GOARCH+")") {
 		t.Fatalf("version: %v %s", err, out)
 	}
 }

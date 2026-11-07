@@ -968,3 +968,67 @@ Browser (`internal/browser`):
 * **Socket path:** Chromium's singleton socket lives in `TMPDIR`, and `sun_path` holds 104 bytes
   on macOS (108 on Linux). The browser keeps the caller's `TMPDIR` on macOS as on Linux; whether a
   runner's `TMPDIR` is short enough is first seen on the macOS legs. Only comments changed.
+
+Service (`internal/service`, `internal/daemon`):
+
+* **A LaunchAgent, label `tbd`:** `~/Library/LaunchAgents/tbd.plist` (0644), the counterpart of
+  `tbd.service` and the task `tbd`, loaded into the user's GUI domain `gui/<uid>`. Keys:
+  `ProgramArguments` = the binary, `run --home <home> --log-file <home>/tbd.log`; `RunAtLoad`;
+  `KeepAlive { SuccessfulExit = false }` (restart after a crash or an error exit, not after a clean
+  stop, like `Restart=` with SIGTERM's exit 0); `ThrottleInterval 10` (= `RestartSec`);
+  `ExitTimeOut 30` (= `TimeoutStopSec`, covers the daemon's own shutdown); `ProcessType
+  Interactive` (no background throttling of CPU, I/O and timers: latency is the product);
+  `LimitLoadToSessionType Aqua`; `Umask 63` (077); `StandardOutPath`/`StandardErrorPath`
+  `<home>/tbd.stderr.log`. No `EnvironmentVariables`, no `WorkingDirectory`. The plist is XML
+  with the five specials escaped and refuses arguments that are not UTF-8; a hermetic test parses
+  it back into the exact argv, and the runner's round trip runs `plutil -lint` and
+  `plutil -convert json`.
+* **Logs:** `--log-file <home>/tbd.log` on macOS too (rotated at 10 MiB, as under the Windows task):
+  launchd keeps no journal and rotates nothing, so its stdio file gets only what happens before the
+  log is open.
+* **Install** (`Plan` gained `Dirs` and `Unload`, run by the generic `Apply` and printed by
+  `--dry-run`): create the home (launchd opens the stdio file before it starts tbd and creates no
+  directory) → write the plist → unload `gui/<uid>/tbd` if `launchctl print` finds it (bootout,
+  whose exit status is only advisory, then poll `print` every 250 ms for up to 40 s: a bootstrap
+  issued while the removal is pending fails with an I/O error) → `launchctl enable` (undoes an
+  earlier `launchctl disable`, which would block loading now and at every login) → `launchctl
+  bootstrap gui/<uid> <plist>`. A plan with `NoStart` (tests use it) writes and enables only. Uninstall (best effort): unload, remove the plist. Refused as root ("run tbd install
+  as yourself, not with sudo": `gui/0` is not the user's session). The notes name `launchctl
+  print`, both log files, the "Background Items Added" notice (the user must leave tbd allowed in
+  System Settings > General > Login Items & Extensions), and, when the binary carries
+  `com.apple.quarantine` (`getxattr`), the `xattr -d` command.
+* **Start / stop:** `tbd start` kickstarts a loaded job and enables and bootstraps one that is not
+  loaded (after `tbd stop`); no plist is "not installed". `tbd stop` boots the job out when the
+  lock holder is the job's own process (`pid = N` in `launchctl print`): launchd sends SIGTERM,
+  SIGKILL after `ExitTimeOut`, and never restarts a job whose removal is pending, so neither a
+  SIGTERM that arrives before the handler is installed, a non-zero shutdown nor the forced kill can
+  bring it back to race `tbd login` (the reason Linux goes through `systemctl`). The job then stays
+  unloaded until `tbd start` or the next login, like `systemctl --user stop`. If bootout fails,
+  `tbd stop` sends SIGTERM itself; any other holder (a `tbd run` in a terminal) gets SIGTERM as
+  before. `tbd status` adds a `launchd:` line (`gui/<uid>/tbd loaded, running (pid N)`,
+  `installed, not loaded (tbd start)`, `not installed`); `launchctl print` is parsed leniently
+  (only the job's own `key = value` lines; nested blocks repeat key names), and a missing GUI domain
+  (`launchctl print gui/<uid>` fails, e.g. only an SSH session) is an error of its own.
+* **Lock holder without `/proc/locks`:** macOS does not expose flock owners (`F_GETLK` reports pid
+  -1 for them), and fcntl locks are no option (closing any descriptor of the file drops them, and
+  `Held`/`LockHolder` open and close it). The settled PID is trusted when `kern.proc.pid` (x/sys
+  `SysctlKinfoProc`, no lsof) finds it alive, not a zombie, and started no later than one second
+  after the lock file's modification time: the holder writes its PID right after taking the lock,
+  so a process that started later only reused the PID of a holder that is gone. Together with the
+  double try-lock this is stronger than Windows (PID file only). Linux keeps `/proc/locks`.
+* **`TBD_TEST_SERVICE_NAME`:** install, uninstall, start, stop and status act on the job named by
+  it instead of `tbd`, and accept only `tbd-test-<12 hex digits>`, so the binary test can drive the
+  real commands without any value reaching the user's own job.
+* **Tests:** goldens of the dry runs (default, `NoStart`, uninstall) and of the plist on a
+  synthetic Mac (`/Users/u`, uid 501); escaping of `&`, `<`, quotes, `%`, `$`; root, a missing home
+  or home directory and relative paths refused; `Unload` against a fake launchd (not loaded → no
+  bootout; loaded → bootout and poll; never leaves → error and nothing after it runs; best effort
+  still removes the plist); `launchctl print` parsing on a synthetic sample (to be refreshed from a
+  runner's output); start, stop (through bootout, the SIGTERM fallback, a terminal holder) and the
+  status line with the darwin code paths, all on Linux. On the macOS runners: the lock-holder check
+  on real processes, `TestLaunchdRoundTrip` (a `tbd-test-*` job, its plist in a temporary
+  directory, run by a copy of the test binary: RunAtLoad with the exact argv, no restart after
+  SIGTERM or a clean exit 0, restarts after exit 1 and SIGKILL, a re-install while running, a
+  bootout that stays down, start after it, uninstall; `~/Library/LaunchAgents` unchanged) and
+  `TestBinaryLaunchAgent` (the real `tbd install`, `status`, `stop`, `start`, a SIGKILL, and
+  `uninstall` against fake Teams; CI only).

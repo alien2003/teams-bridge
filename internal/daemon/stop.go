@@ -35,14 +35,19 @@ type StopOptions struct {
 	Home    string
 	Timeout time.Duration // graceful phase; 0 → DefaultStopTimeout
 	Out     io.Writer
-	// Runner asks systemd (Linux) whether the holder is tbd.service's main process; nil → exec.
+	// Runner asks systemd (Linux) or launchd (macOS) whether the holder is the service's main
+	// process; nil → exec.
 	Runner service.Runner
+	// Name is the service's name; default service.DefaultName.
+	Name string
 
 	// Test hooks; zero values mean production behaviour.
 	poll    time.Duration
 	settle  time.Duration
 	request func(ctx context.Context, pid int) (how string, err error) // how == "": could not ask
 	force   func(pid int) error
+	goos    string       // default runtime.GOOS
+	env     *service.Env // default service.DefaultEnv()
 }
 
 // Stop stops the process that holds home's lock: it asks it to stop gracefully (the SIGTERM path:
@@ -64,7 +69,7 @@ func Stop(ctx context.Context, o StopOptions) error {
 	}
 	request, force := o.request, o.force
 	if request == nil {
-		request = func(ctx context.Context, pid int) (string, error) { return requestStop(ctx, o.Home, pid, o.Runner) }
+		request = func(ctx context.Context, pid int) (string, error) { return requestStop(ctx, o, pid) }
 	}
 	if force == nil {
 		force = func(pid int) error { return forceStop(o.Home, pid) }
@@ -144,25 +149,63 @@ func waitReleased(ctx context.Context, home string, pid int, timeout, poll time.
 	}
 }
 
-// requestStop asks the holder to stop gracefully. On Linux a holder that is tbd.service's main
-// process is stopped through systemd: with Restart=always, a unit whose process merely exits is
-// started again 10 s later, which would race `tbd login`.
-func requestStop(ctx context.Context, home string, pid int, r service.Runner) (string, error) {
-	if runtime.GOOS == "linux" {
-		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		if r == nil {
-			r = service.ExecRunner{}
-		}
-		if main, err := service.MainPID(cctx, r, service.DefaultName); err == nil && main == pid {
-			c := service.StopCommand(service.DefaultName)
+// requestStop asks the holder to stop gracefully. A holder that is the service's own process is
+// stopped through its service manager, since a process that merely exits would be started again:
+// on Linux tbd.service (Restart=always, 10 s later) with `systemctl --user stop --no-block`; on
+// macOS the LaunchAgent (KeepAlive restarts it after SIGKILL or a non-zero exit) with `launchctl
+// bootout`, which sends SIGTERM and never restarts a job whose removal is pending. Either would
+// otherwise race `tbd login`. Any other holder (a `tbd run` in a terminal) gets SIGTERM.
+func requestStop(ctx context.Context, o StopOptions, pid int) (string, error) {
+	goos, name, r := o.goos, o.Name, o.Runner
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if name == "" {
+		name = service.DefaultName
+	}
+	if r == nil {
+		r = service.ExecRunner{}
+	}
+	cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	switch goos {
+	case "linux":
+		if main, err := service.MainPID(cctx, r, name); err == nil && main == pid {
+			c := service.StopCommand(name)
 			if out, err := r.Run(cctx, c[0], c[1:]...); err != nil {
 				return "", fmt.Errorf("%s: %w: %s", strings.Join(c, " "), err, strings.TrimSpace(out))
 			}
 			return strings.Join(c, " "), nil
 		}
+	case "darwin":
+		env := service.DefaultEnv()
+		if o.env != nil {
+			env = *o.env
+		}
+		job, err := service.QueryLaunchd(cctx, r, name, env)
+		if err != nil || !job.Loaded || job.PID != pid {
+			break
+		}
+		target, _ := service.LaunchdTarget(name, env)
+		c := service.LaunchdBootout(target)
+		line := strings.Join(c, " ")
+		out, err := r.Run(cctx, c[0], c[1:]...)
+		switch {
+		case err == nil:
+			return line, nil
+		case cctx.Err() != nil:
+			// bootout waits for the job to exit; the removal is under way in launchd all the same.
+			return line + ", in progress", nil
+		}
+		// bootout refused: SIGTERM still stops it (exit 0 is not restarted), only a later forced
+		// kill would be.
+		how, serr := requestStopOS(o.Home, pid)
+		if serr != nil {
+			return "", fmt.Errorf("%s: %w: %s; SIGTERM: %w", line, err, strings.TrimSpace(out), serr)
+		}
+		return fmt.Sprintf("%s, as %s failed: %s", how, line, strings.TrimSpace(out)), nil
 	}
-	return requestStopOS(home, pid)
+	return requestStopOS(o.Home, pid)
 }
 
 // isTbdImage reports whether the image path names tbd.exe (by base name, case-insensitively). A

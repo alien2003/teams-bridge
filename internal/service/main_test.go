@@ -2,29 +2,86 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // taskProbeMarker is part of the --home directory name of the opt-in Windows task probe
 // (TestSchtasksRoundTrip with TBD_TEST_TASK_RUN=1); probeArgvFile is what the probe writes there.
+// launchdProbeMarker names the home of the macOS LaunchAgent probe (TestLaunchdRoundTrip).
 const (
-	taskProbeMarker = "tbd-argv-probe"
-	probeArgvFile   = "argv.json"
+	taskProbeMarker    = "tbd-argv-probe"
+	probeArgvFile      = "argv.json"
+	launchdProbeMarker = "tbd-launchd-probe"
 )
 
-// TestMain lets this test binary stand in for tbd in the task probe: started by Task Scheduler as
-// `<copy of the binary> run --home <dir whose name contains taskProbeMarker>`, it records the argv it
-// received in that directory and exits instead of running tests. Any other invocation runs the tests.
+// TestMain lets this test binary stand in for tbd in the service probes: started by Task Scheduler
+// or launchd as `<copy of the binary> run --home <dir whose name contains a probe marker> …`, it
+// plays its part (see recordArgv, launchdProbe) and exits instead of running tests. Any other
+// invocation runs the tests.
 func TestMain(m *testing.M) {
-	if a := os.Args; len(a) >= 4 && a[1] == "run" && a[2] == "--home" && strings.Contains(filepath.Base(a[3]), taskProbeMarker) {
-		os.Exit(recordArgv(a[3], a[1:]))
+	if a := os.Args; len(a) >= 4 && a[1] == "run" && a[2] == "--home" {
+		switch base := filepath.Base(a[3]); {
+		case strings.Contains(base, taskProbeMarker):
+			os.Exit(recordArgv(a[3], a[1:]))
+		case strings.Contains(base, launchdProbeMarker):
+			os.Exit(launchdProbe(a[3], a[1:]))
+		}
 	}
 	os.Exit(m.Run())
 }
+
+// launchdProbe is one start of the LaunchAgent probe. It appends "start <pid> <argv as JSON>" to
+// <home>/starts.log, then acts as <home>/mode says: "exit0" and "exit1" exit with that status at
+// once; "serve" (the default) runs until SIGTERM, appends "term <pid>" and exits 0, as tbd does.
+func launchdProbe(home string, args []string) int {
+	term := make(chan os.Signal, 1)
+	signal.Notify(term, syscall.SIGTERM)
+	b, err := json.Marshal(args)
+	if err != nil {
+		return 2
+	}
+	appendLine := func(s string) error {
+		f, err := os.OpenFile(filepath.Join(home, probeStartsFile), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(f, s)
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		return err
+	}
+	if appendLine(fmt.Sprintf("start %d %s", os.Getpid(), b)) != nil {
+		return 3
+	}
+	mode, _ := os.ReadFile(filepath.Join(home, "mode"))
+	switch strings.TrimSpace(string(mode)) {
+	case "exit0":
+		return 0
+	case "exit1":
+		return 1
+	}
+	select {
+	case <-term:
+		if appendLine(fmt.Sprintf("term %d", os.Getpid())) != nil {
+			return 4
+		}
+		return 0
+	case <-time.After(10 * time.Minute):
+		return 5
+	}
+}
+
+// probeStartsFile is launchdProbe's record inside its home.
+const probeStartsFile = "starts.log"
 
 // TestArgvProbeSelf runs this binary the way the task probe's action does (no toolchain involved) and
 // checks the recorded argv, so the opt-in Windows probe cannot fail on a bug of its own.

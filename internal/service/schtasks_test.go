@@ -460,8 +460,8 @@ func TestWindowsPlans(t *testing.T) {
 	if _, err := InstallPlan(spec, "windows", envOf(nil)); err == nil {
 		t.Error("no USERNAME: no error")
 	}
-	if _, err := InstallPlan(spec, "darwin", winEnv); err == nil {
-		t.Error("darwin: no error")
+	if _, err := InstallPlan(spec, "freebsd", winEnv); err == nil {
+		t.Error("freebsd: no error")
 	}
 }
 

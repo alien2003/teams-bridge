@@ -4,15 +4,26 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"runtime"
 	"time"
 
 	"github.com/alien2003/teams-bridge/internal/config"
 	"github.com/alien2003/teams-bridge/internal/fcm"
 	"github.com/alien2003/teams-bridge/internal/proto"
+	"github.com/alien2003/teams-bridge/internal/service"
 )
 
+// StatusOptions configure PrintStatus.
+type StatusOptions struct {
+	ServiceName string         // default service.DefaultName
+	Runner      service.Runner // nil → service.ExecRunner
+
+	goos string       // test hook: default runtime.GOOS
+	env  *service.Env // test hook: default service.DefaultEnv()
+}
+
 // PrintStatus prints what `tbd status` shows. It never prints the secret or the service-account key.
-func PrintStatus(ctx context.Context, w io.Writer, home string, cfg *config.Config, version string) error {
+func PrintStatus(ctx context.Context, w io.Writer, home string, cfg *config.Config, version string, o StatusOptions) error {
 	p := func(k, f string, a ...any) { fmt.Fprintf(w, "%-16s %s\n", k+":", fmt.Sprintf(f, a...)) }
 	p("tbd", "%s (protocol v%d)", version, proto.Version)
 	p("data directory", "%s", home)
@@ -45,6 +56,21 @@ func PrintStatus(ctx context.Context, w io.Writer, home string, cfg *config.Conf
 		p("daemon", "running (pid %s)", pid)
 	} else {
 		p("daemon", "not running")
+	}
+	if goos := o.goos; goos == "darwin" || goos == "" && runtime.GOOS == "darwin" {
+		name, r, env := o.ServiceName, o.Runner, service.DefaultEnv()
+		if name == "" {
+			name = service.DefaultName
+		}
+		if r == nil {
+			r = service.ExecRunner{}
+		}
+		if o.env != nil {
+			env = *o.env
+		}
+		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		p("launchd", "%s", service.LaunchdStatus(cctx, r, name, env))
+		cancel()
 	}
 	st := LoadState(home)
 	ago := func(t time.Time) string {

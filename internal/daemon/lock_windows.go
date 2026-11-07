@@ -21,8 +21,9 @@ func unlockFile(f *os.File) {
 	_ = windows.UnlockFileEx(windows.Handle(f.Fd()), 0, 1, 0, lockRange())
 }
 
-// kernelLockOwners: Windows has no API that names a byte-range lock's owner.
-func kernelLockOwners(*os.File) ([]int, bool) { return nil, false }
+// checkLockOwner: Windows has no API that names a byte-range lock's owner, so the settled PID file
+// is all there is (forceStop also checks the image name and creation time).
+func checkLockOwner(*os.File, int) error { return nil }
 
 // stopEventNameOf is the name of the stop event for the lock file f: StopEventName of its volume
 // serial number and file index, which are the same whichever path spelling (case, 8.3 short name,

@@ -118,8 +118,10 @@ var ErrHolderUnknown = errors.New("cannot tell which process holds the lock")
 
 // LockHolder returns the PID of the process that holds the lock, or 0 when nobody does. The PID
 // comes from the lock file and is trusted only when (1) two try-locks holderSettle apart both fail
-// with the same PID in the file and (2) on Linux, /proc/locks lists a lock on that file's inode by
-// that PID (when it lists any lock on it). Anything less is ErrHolderUnknown: `tbd stop` must never
+// with the same PID in the file and (2) the OS check agrees (checkLockOwner): on Linux /proc/locks
+// lists a lock on that file's inode by that PID (when it lists any lock on it); on macOS, whose
+// kernel names no flock owner, the PID is alive and its process started no later than the PID
+// file was written (holderPlausible). Anything less is ErrHolderUnknown: `tbd stop` must never
 // signal a process that does not hold the lock.
 func LockHolder(home string) (int, error) { return lockHolder(home, holderSettle) }
 
@@ -151,18 +153,31 @@ func lockHolder(home string, settle time.Duration) (int, error) {
 		if pid == 0 || parsePID(readPID(LockPath(home))) != pid {
 			continue // being written, or a new holder: look again
 		}
-		owners, ok := kernelLockOwners(f)
-		if !ok || len(owners) == 0 {
-			return pid, nil
+		if err := checkLockOwner(f, pid); err != nil {
+			return 0, fmt.Errorf("%w: %s names pid %d, but %v", ErrHolderUnknown, LockPath(home), pid, err)
 		}
-		for _, o := range owners {
-			if o == pid {
-				return pid, nil
-			}
-		}
-		return 0, fmt.Errorf("%w: %s names pid %d, but the kernel lists pid(s) %v", ErrHolderUnknown, LockPath(home), pid, owners)
+		return pid, nil
 	}
 	return 0, fmt.Errorf("%w: %s does not name a stable pid", ErrHolderUnknown, LockPath(home))
+}
+
+// holderPlausible is macOS's check of the PID a settled lock file names (the kernel does not
+// expose flock owners there: F_GETLK reports pid -1 for them). The holder writes its PID right
+// after taking the lock, so it started before the file was written; a process that started later
+// merely reused the PID of a holder that is gone. A second of slack covers clock granularity.
+// written is the lock file's modification time.
+func holderPlausible(alive bool, started time.Time, zombie bool, written time.Time) error {
+	switch {
+	case !alive:
+		return errors.New("no such process")
+	case zombie:
+		return errors.New("that process has exited")
+	case started.IsZero() || written.IsZero():
+		return errors.New("its start time is unknown")
+	case started.After(written.Add(time.Second)):
+		return fmt.Errorf("that process started %s after the file was written (a reused pid)", started.Sub(written).Round(time.Millisecond))
+	}
+	return nil
 }
 
 func parsePID(s string) int {

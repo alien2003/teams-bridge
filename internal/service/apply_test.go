@@ -120,8 +120,12 @@ func TestDryRunWindowsExact(t *testing.T) {
 // hostPlan is an install plan for the host OS whose every path is under dir.
 func hostPlan(t *testing.T, dir string) (Spec, Env) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		return Spec{Name: "tbd-test-apply", Exe: `C:\nonexistent\tbd.exe`, Home: filepath.Join(dir, "home dir")}, winEnv
+	case "darwin":
+		return Spec{Name: "tbd-test-apply", Exe: "/nonexistent/tbd", Home: filepath.Join(dir, "home dir")},
+			Env{HomeDir: dir, UID: 501, LaunchAgentsDir: filepath.Join(dir, "LaunchAgents dir")}
 	}
 	return Spec{Name: "tbd-test-apply", Exe: "/nonexistent/tbd", Home: filepath.Join(dir, "home")},
 		envOf(map[string]string{"XDG_CONFIG_HOME": filepath.Join(dir, "cfg dir"), "USER": "u"})
@@ -172,12 +176,31 @@ func TestApplyHostPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &fakeRunner{}
+	// launchd (darwin): the job is not loaded, so nothing is booted out.
+	notLoaded := func() *fakeRunner {
+		r := &fakeRunner{fail: map[string]bool{}}
+		for _, target := range p.Unload {
+			r.fail["launchctl print "+target] = true
+		}
+		return r
+	}
+	var probes []string
+	for _, target := range p.Unload {
+		probes = append(probes, "launchctl print "+target)
+	}
+	r := notLoaded()
 	var out bytes.Buffer
 	if err := Apply(context.Background(), p, r, &out, false); err != nil {
 		t.Fatal(err)
 	}
-	equalLines(t, "commands", r.calls, cmdLines(p.Commands))
+	equalLines(t, "commands", r.calls, append(probes, cmdLines(p.Commands)...))
+	for _, d := range p.Dirs {
+		if st, err := os.Stat(d); err != nil || !st.IsDir() {
+			t.Errorf("directory %s not created: %v", d, err)
+		} else if runtime.GOOS != "windows" && st.Mode().Perm() != 0o700 {
+			t.Errorf("directory %s: mode %v", d, st.Mode())
+		}
+	}
 	f := p.Files[0]
 	got, err := os.ReadFile(f.Path)
 	if err != nil || !bytes.Equal(got, f.Content) {
@@ -193,7 +216,7 @@ func TestApplyHostPlan(t *testing.T) {
 		t.Errorf("temporary files left: %q", left)
 	}
 	// Re-install overwrites.
-	if err := Apply(context.Background(), p, &fakeRunner{}, nil, false); err != nil {
+	if err := Apply(context.Background(), p, notLoaded(), nil, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -201,16 +224,20 @@ func TestApplyHostPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r = &fakeRunner{}
+	r = notLoaded()
 	if err := Apply(context.Background(), u, r, nil, false); err != nil {
 		t.Fatal(err)
 	}
-	equalLines(t, "uninstall commands", r.calls, append(cmdLines(u.Commands), cmdLines(u.PostCommands)...))
+	var uprobes []string
+	for _, target := range u.Unload {
+		uprobes = append(uprobes, "launchctl print "+target)
+	}
+	equalLines(t, "uninstall commands", r.calls, append(append(uprobes, cmdLines(u.Commands)...), cmdLines(u.PostCommands)...))
 	if _, err := os.Stat(f.Path); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("%s not removed: %v", f.Path, err)
 	}
 	// Uninstalling twice: the file is already gone, which is fine.
-	if err := Apply(context.Background(), u, &fakeRunner{}, nil, false); err != nil {
+	if err := Apply(context.Background(), u, notLoaded(), nil, false); err != nil {
 		t.Errorf("second uninstall: %v", err)
 	}
 }

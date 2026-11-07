@@ -1,0 +1,7 @@
+Dry run: nothing is written, removed or run.
+
+Would unload, if loaded (then wait until launchd has removed it):
+  launchctl bootout gui/501/tbd
+
+Would remove:
+  /Users/u/Library/LaunchAgents/tbd.plist

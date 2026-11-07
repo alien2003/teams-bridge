@@ -164,7 +164,7 @@ func Run(ctx context.Context, o Options) error {
 		counts:    map[string]int{},
 	}
 	d.alerts = session.NewDebouncer(o.Debounce, nil)
-	for kind, at := range d.state.get().LastAlerts { // survive restarts (systemd Restart=always)
+	for kind, at := range d.state.get().LastAlerts { // survive restarts (systemd Restart=always, launchd KeepAlive)
 		d.alerts.Seed(kind, at)
 	}
 	d.det = session.NewDetector(session.DetectorConfig{

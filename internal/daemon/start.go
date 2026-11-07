@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -19,12 +20,14 @@ type StartOptions struct {
 	Runner service.Runner // nil → service.ExecRunner
 	Wait   time.Duration  // how long to wait for the started daemon to take the lock; 0 → 20 s
 
-	goos string // test hook: the target OS (default runtime.GOOS)
+	goos string       // test hook: the target OS (default runtime.GOOS)
+	env  *service.Env // test hook: default service.DefaultEnv()
 }
 
 // Start starts the installed service now (`schtasks /run /tn tbd`, `systemctl --user start
-// tbd.service`) and waits until a daemon holds home's lock. When one already does, it says so and
-// starts nothing: a second daemon would only fail on the lock.
+// tbd.service`, `launchctl kickstart gui/<uid>/tbd` or, after `tbd stop`, `launchctl bootstrap`)
+// and waits until a daemon holds home's lock. When one already does, it says so and starts
+// nothing: a second daemon would only fail on the lock.
 func Start(ctx context.Context, out io.Writer, o StartOptions) error {
 	if out == nil {
 		out = io.Discard
@@ -43,22 +46,31 @@ func Start(ctx context.Context, out io.Writer, o StartOptions) error {
 	if r == nil {
 		r = service.ExecRunner{}
 	}
+	env := service.DefaultEnv()
+	if o.env != nil {
+		env = *o.env
+	}
 	cctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	if err := service.CheckInstalled(cctx, r, name, goos); err != nil {
+	notInstalled := func(err error) error {
 		if errors.Is(err, service.ErrNotInstalled) {
 			return fmt.Errorf("tbd is not installed as a service: run `tbd install` (or `tbd run` in a terminal) (%v)", err)
 		}
 		return err
 	}
-	c, err := service.StartCommand(name, goos)
-	if err != nil {
-		return err
+	if err := service.CheckInstalled(cctx, r, name, goos, env); err != nil {
+		return notInstalled(err)
 	}
-	line := strings.Join(c, " ")
-	fmt.Fprintf(out, "Running: %s\n", line)
-	if res, err := r.Run(cctx, c[0], c[1:]...); err != nil {
-		return fmt.Errorf("%s: %w: %s", line, err, strings.TrimSpace(res))
+	cs, err := service.StartCommands(cctx, r, name, goos, env)
+	if err != nil {
+		return notInstalled(err)
+	}
+	for _, c := range cs {
+		line := strings.Join(c, " ")
+		fmt.Fprintf(out, "Running: %s\n", line)
+		if res, err := r.Run(cctx, c[0], c[1:]...); err != nil {
+			return fmt.Errorf("%s: %w: %s", line, err, strings.TrimSpace(res))
+		}
 	}
 	wait := o.Wait
 	if wait <= 0 {
@@ -79,8 +91,11 @@ func Start(ctx context.Context, out io.Writer, o StartOptions) error {
 		}
 	}
 	logs := "journalctl --user -u " + name + ".service"
-	if goos == "windows" {
+	switch goos {
+	case "windows":
 		logs = LogFile(o.Home)
+	case "darwin":
+		logs = LogFile(o.Home) + " and " + filepath.Join(o.Home, service.StderrLog)
 	}
 	return fmt.Errorf("the service was started, but no daemon took %s within %s: see `tbd status` and %s", LockPath(o.Home), wait, logs)
 }

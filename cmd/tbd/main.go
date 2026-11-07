@@ -21,6 +21,7 @@ import (
 	"github.com/alien2003/teams-bridge/internal/config"
 	"github.com/alien2003/teams-bridge/internal/daemon"
 	"github.com/alien2003/teams-bridge/internal/proto"
+	"github.com/alien2003/teams-bridge/internal/service"
 )
 
 // version is set by the build (-ldflags "-X main.version=...").
@@ -37,10 +38,12 @@ Commands:
   run [--once] [--timeout D]
                         run the daemon (--once: exit after the first notification is delivered)
   stop [--timeout D]    stop the running daemon (gracefully; forcibly after D, default 20s)
-  start                 start the installed service now (schtasks /run, systemctl --user start)
+  start                 start the installed service now (schtasks /run, systemctl --user start,
+                        launchctl kickstart)
   status                show configuration, pairing and daemon state
   test-push             send a test notification to the paired phone
-  install [--dry-run]   start tbd automatically at logon (systemd user unit / scheduled task)
+  install [--dry-run]   start tbd automatically at logon (systemd user unit / scheduled task /
+                        LaunchAgent)
   uninstall [--dry-run] remove that again
   version               print the version
 
@@ -370,7 +373,11 @@ func (g *globals) cmdStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	return daemon.PrintStatus(context.Background(), g.stdout, home, cfg, version)
+	name, err := service.NameFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	return daemon.PrintStatus(context.Background(), g.stdout, home, cfg, version, daemon.StatusOptions{ServiceName: name})
 }
 
 func (g *globals) cmdStop(args []string) error {
@@ -388,9 +395,13 @@ func (g *globals) cmdStop(args []string) error {
 	if err != nil {
 		return err
 	}
+	name, err := service.NameFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return daemon.Stop(ctx, daemon.StopOptions{Home: home, Timeout: timeout, Out: g.stdout})
+	return daemon.Stop(ctx, daemon.StopOptions{Home: home, Timeout: timeout, Out: g.stdout, Name: name})
 }
 
 func (g *globals) cmdStart(args []string) error {
@@ -401,9 +412,13 @@ func (g *globals) cmdStart(args []string) error {
 	if err != nil {
 		return err
 	}
+	name, err := service.NameFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return daemon.Start(ctx, g.stdout, daemon.StartOptions{Home: home})
+	return daemon.Start(ctx, g.stdout, daemon.StartOptions{Home: home, Name: name})
 }
 
 func (g *globals) cmdInstall(args []string, uninstall bool) error {
@@ -425,7 +440,11 @@ func (g *globals) cmdInstall(args []string, uninstall bool) error {
 	if err != nil {
 		return err
 	}
+	svc, err := service.NameFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	return daemon.Install(ctx, g.stdout, daemon.InstallOptions{Home: home, Exe: exe, Uninstall: uninstall, DryRun: dry})
+	return daemon.Install(ctx, g.stdout, daemon.InstallOptions{Home: home, Exe: exe, Name: svc, Uninstall: uninstall, DryRun: dry})
 }

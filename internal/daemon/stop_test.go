@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/alien2003/teams-bridge/internal/proto"
+	"github.com/alien2003/teams-bridge/internal/service"
 )
 
 // The test binary doubles as a lock holder for the stop tests: with TBD_TEST_LOCK_HELPER=<home> it
@@ -176,11 +177,10 @@ func TestLockHolder(t *testing.T) {
 	if pid, err := LockHolder(home); pid != os.Getpid() || err != nil {
 		t.Fatalf("held by us: %d %v", pid, err)
 	}
-	if runtime.GOOS == "linux" { // the kernel's view must be the one LockHolder cross-checks
-		owners, ok := kernelLockOwners(l.f)
-		if !ok || fmt.Sprint(owners) != fmt.Sprint([]int{os.Getpid()}) {
-			t.Errorf("/proc/locks owners = %v (%v), want [%d]", owners, ok, os.Getpid())
-		}
+	// The OS check LockHolder relies on accepts the real holder (lock_linux_test.go and
+	// lock_darwin_test.go test what it rejects).
+	if err := checkLockOwner(l.f, os.Getpid()); err != nil {
+		t.Errorf("checkLockOwner(own pid): %v", err)
 	}
 	l.Release()
 	if pid, err := LockHolder(home); pid != 0 || err != nil {
@@ -477,5 +477,93 @@ func TestE2EStop(t *testing.T) {
 	h.waitFor("daemon_stopping", 5*time.Second, isAlert(proto.KindDaemonStopping))
 	if runtime.GOOS == "windows" && !strings.Contains(h.logs.String(), "stop requested (tbd stop)") {
 		t.Error("no stop-request log line")
+	}
+}
+
+func TestHolderPlausible(t *testing.T) {
+	w := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	for _, c := range []struct {
+		alive, zombie bool
+		started       time.Time
+		want          string // "" = accepted
+	}{
+		{true, false, w.Add(-time.Hour), ""},
+		{true, false, w, ""},
+		{true, false, w.Add(900 * time.Millisecond), ""}, // within the slack
+		{true, false, w.Add(1500 * time.Millisecond), "reused pid"},
+		{false, false, w.Add(-time.Hour), "no such process"},
+		{true, true, w.Add(-time.Hour), "exited"},
+		{true, false, time.Time{}, "unknown"},
+	} {
+		err := holderPlausible(c.alive, c.started, c.zombie, w)
+		if (c.want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%+v: %v, want %q", c, err, c.want)
+		}
+	}
+}
+
+// launchdFake plays the LaunchAgent gui/501/tbd with the helper as its process: bootout sends the
+// SIGTERM that launchd would; with refuse, bootout fails and Stop falls back to SIGTERM itself.
+type launchdFake struct {
+	mu     sync.Mutex
+	pid    int
+	refuse bool
+	calls  []string
+}
+
+func (f *launchdFake) Run(_ context.Context, name string, args ...string) (string, error) {
+	line := strings.Join(append([]string{name}, args...), " ")
+	f.mu.Lock()
+	f.calls = append(f.calls, line)
+	f.mu.Unlock()
+	switch line {
+	case "launchctl print gui/501/tbd":
+		return fmt.Sprintf("gui/501/tbd = {\n\tstate = running\n\tpid = %d\n}\n", f.pid), nil
+	case "launchctl bootout gui/501/tbd":
+		if f.refuse {
+			return "Boot-out failed: 1: Operation not permitted\n", errors.New("exit status 1")
+		}
+		p, _ := os.FindProcess(f.pid)
+		return "", p.Signal(syscall.SIGTERM)
+	}
+	return "", fmt.Errorf("unexpected %s", line)
+}
+
+func TestStopThroughLaunchd(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("launchd: Unix signals")
+	}
+	env := &service.Env{HomeDir: "/Users/u", UID: 501}
+	for _, refuse := range []bool{false, true} {
+		home := t.TempDir()
+		cmd, exited, _ := helper(t, home, "obey")
+		f := &launchdFake{pid: cmd.Process.Pid, refuse: refuse}
+		var out bytes.Buffer
+		if err := Stop(context.Background(), StopOptions{Home: home, Out: &out, Runner: f, goos: "darwin", env: env}); err != nil {
+			t.Fatalf("refuse=%v: %v\n%s", refuse, err, out.String())
+		}
+		want, calls := "(pid "+strconv.Itoa(cmd.Process.Pid)+", launchctl bootout gui/501/tbd)", 2
+		if refuse {
+			want = ", SIGTERM, as launchctl bootout gui/501/tbd failed: Boot-out failed"
+		}
+		if !strings.Contains(out.String(), want) || !strings.Contains(out.String(), "Stopped after") || len(f.calls) != calls {
+			t.Errorf("refuse=%v: calls %q\n%s", refuse, f.calls, out.String())
+		}
+		select {
+		case <-exited:
+		case <-time.After(10 * time.Second):
+			t.Fatal("helper still running")
+		}
+	}
+	// A holder that is not the job's process (a tbd run in a terminal) gets SIGTERM directly.
+	home := t.TempDir()
+	cmd, _, _ := helper(t, home, "obey")
+	f := &launchdFake{pid: cmd.Process.Pid + 1}
+	var out bytes.Buffer
+	if err := Stop(context.Background(), StopOptions{Home: home, Out: &out, Runner: f, goos: "darwin", env: env}); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), ", SIGTERM)") || len(f.calls) != 1 {
+		t.Errorf("calls %q\n%s", f.calls, out.String())
 	}
 }

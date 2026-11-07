@@ -26,8 +26,9 @@ func (ExecRunner) Run(ctx context.Context, name string, args ...string) (string,
 	return string(out), err
 }
 
-// Apply executes p, or with dryRun prints exactly what would be written (path, mode and full
-// content) and run (one quoted line per command), touching nothing and running nothing. Notes are
+// Apply executes p, or with dryRun prints exactly what would be created, written (path, mode and
+// full content), unloaded and run (one quoted line per command), touching nothing and running
+// nothing. Notes are
 // printed in both modes. Without BestEffort the first failure stops Apply; a failed command's error
 // carries its output.
 func Apply(ctx context.Context, p Plan, r Runner, out io.Writer, dryRun bool) error {
@@ -46,6 +47,18 @@ func Apply(ctx context.Context, p Plan, r Runner, out io.Writer, dryRun bool) er
 	fail := func(err error) bool {
 		errs = append(errs, err)
 		return !p.BestEffort
+	}
+	for _, d := range p.Dirs {
+		if _, err := os.Stat(d); err == nil {
+			continue
+		}
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			if fail(fmt.Errorf("create %s: %w", d, err)) {
+				return errors.Join(errs...)
+			}
+			continue
+		}
+		fmt.Fprintf(out, "Created %s\n", d)
 	}
 	for _, f := range p.Files {
 		if err := writeFile(f); err != nil {
@@ -77,6 +90,11 @@ func Apply(ctx context.Context, p Plan, r Runner, out io.Writer, dryRun bool) er
 		}
 		return true
 	}
+	for _, target := range p.Unload {
+		if err := unloadJob(ctx, r, p.OS, target, func(s string) { fmt.Fprintln(out, s) }); err != nil && fail(err) {
+			return errors.Join(errs...)
+		}
+	}
 	if !run(p.Commands) {
 		return errors.Join(errs...)
 	}
@@ -105,6 +123,12 @@ func Apply(ctx context.Context, p Plan, r Runner, out io.Writer, dryRun bool) er
 func DryRunText(p Plan) string {
 	var b strings.Builder
 	b.WriteString("Dry run: nothing is written, removed or run.\n")
+	if len(p.Dirs) > 0 {
+		b.WriteString("\nWould create, where missing (mode 0700):\n")
+		for _, d := range p.Dirs {
+			fmt.Fprintf(&b, "  %s\n", d)
+		}
+	}
 	for _, f := range p.Files {
 		mode := f.Mode
 		if mode == 0 {
@@ -129,6 +153,12 @@ func DryRunText(p Plan) string {
 		b.WriteString("\nWould run:\n")
 		for _, c := range cs {
 			fmt.Fprintf(&b, "  %s\n", quoteCommand(p.OS, c))
+		}
+	}
+	if len(p.Unload) > 0 {
+		b.WriteString("\nWould unload, if loaded (then wait until launchd has removed it):\n")
+		for _, t := range p.Unload {
+			fmt.Fprintf(&b, "  %s\n", quoteCommand(p.OS, launchctl("bootout", t)))
 		}
 	}
 	cmds(p.Commands)
